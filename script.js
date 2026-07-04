@@ -5,6 +5,14 @@ const LAYOUTS = [
     { id: 'grid2', label: '2x2' },
     { id: 'column', label: '4x1' },
 ];
+const DOCX_NS = {
+    w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+    r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+    wp: 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+    a: 'http://schemas.openxmlformats.org/drawingml/2006/main',
+    pic: 'http://schemas.openxmlformats.org/drawingml/2006/picture',
+    m: 'http://schemas.openxmlformats.org/officeDocument/2006/math',
+};
 
 let state = {
     papers: [],
@@ -25,6 +33,8 @@ const els = {
 document.getElementById('newPaperBtn').addEventListener('click', createPaper);
 document.getElementById('importBtn').addEventListener('click', () => els.fileInput.click());
 document.getElementById('exportBtn').addEventListener('click', exportBackup);
+document.getElementById('questionsCsvBtn').addEventListener('click', exportQuestionsCsv);
+document.getElementById('answerCsvBtn').addEventListener('click', exportAnswerKeyCsv);
 document.getElementById('printBtn').addEventListener('click', () => window.print());
 document.getElementById('wordBtn').addEventListener('click', exportWord);
 els.fileInput.addEventListener('change', importBackup);
@@ -231,9 +241,14 @@ function renderWorkbench() {
             </div>
             <div class="question-tools">
                 <button class="small-btn success" id="addQuestionBtn">+ Question</button>
+                <button class="small-btn" id="reuseQuestionBtn">Reuse</button>
                 <button class="small-btn" id="duplicateSectionBtn">Duplicate</button>
                 <button class="small-btn danger" id="deleteSectionBtn">Delete</button>
             </div>
+        </div>
+        <div class="reuse-panel" id="reusePanel" hidden>
+            <input id="reuseSearchInput" placeholder="Search saved questions from all papers..." />
+            <div class="reuse-results" id="reuseResults"></div>
         </div>
         ${section.questions.length ? section.questions.map((question, index) => questionCard(question, index)).join('') : emptyQuestions()}
     `;
@@ -245,6 +260,8 @@ function renderWorkbench() {
         save();
     });
     document.getElementById('addQuestionBtn').addEventListener('click', () => addQuestion(section.id));
+    document.getElementById('reuseQuestionBtn').addEventListener('click', toggleReusePanel);
+    document.getElementById('reuseSearchInput').addEventListener('input', renderReuseResults);
     document.getElementById('duplicateSectionBtn').addEventListener('click', duplicateSection);
     document.getElementById('deleteSectionBtn').addEventListener('click', deleteSection);
 
@@ -352,16 +369,20 @@ function richEditor({ id, qid, option = '', field, value, placeholder }) {
             <div class="editor-toolbar">
                 <button type="button" class="tool-btn" data-format="bold" data-editor-id="${esc(id)}" title="Bold"><b>B</b></button>
                 <button type="button" class="tool-btn" data-format="italic" data-editor-id="${esc(id)}" title="Italic"><i>I</i></button>
+                <button type="button" class="tool-btn" data-insert-equation data-editor-id="${esc(id)}" title="Insert equation">∑</button>
                 <button type="button" class="tool-btn" data-toggle-code data-editor-id="${esc(id)}" title="Show code">Code</button>
             </div>
             <div class="editor visual-editor"
                  contenteditable="true"
                  data-visual-editor
                  data-editor-id="${esc(id)}"
+                 data-autocomplete-anchor
                  data-placeholder="${esc(placeholder)}">${markdownToVisualHtml(value)}</div>
+            <div class="autocomplete-list" data-autocomplete-list data-editor-id="${esc(id)}" hidden></div>
             <textarea class="editor code-editor"
                       data-code-editor
                       data-editor-id="${esc(id)}"
+                      data-autocomplete-anchor
                       data-image-map="${mapAttr}"
                       placeholder="Markdown code">${esc(codeValue)}</textarea>
         </div>
@@ -372,18 +393,24 @@ function bindRichEditors() {
     els.workbench.querySelectorAll('[data-visual-editor]').forEach(editor => {
         editor.addEventListener('input', () => {
             updateFieldFromEditor(editor.dataset.editorId, markdownFromVisual(editor));
+            renderAutocomplete(editor.dataset.editorId);
         });
         editor.addEventListener('blur', () => {
             updateFieldFromEditor(editor.dataset.editorId, markdownFromVisual(editor));
+            setTimeout(() => hideAutocomplete(editor.dataset.editorId), 120);
             render();
         });
+        editor.addEventListener('focus', () => renderAutocomplete(editor.dataset.editorId));
     });
 
     els.workbench.querySelectorAll('[data-code-editor]').forEach(editor => {
         editor.addEventListener('input', () => {
             autoResize(editor);
             updateFieldFromEditor(editor.dataset.editorId, markdownFromCode(editor.value, editor.dataset.imageMap));
+            renderAutocomplete(editor.dataset.editorId);
         });
+        editor.addEventListener('focus', () => renderAutocomplete(editor.dataset.editorId));
+        editor.addEventListener('blur', () => setTimeout(() => hideAutocomplete(editor.dataset.editorId), 120));
         autoResize(editor);
     });
 
@@ -393,6 +420,10 @@ function bindRichEditors() {
 
     els.workbench.querySelectorAll('[data-toggle-code]').forEach(btn => {
         btn.addEventListener('click', () => toggleCodeMode(btn.dataset.editorId));
+    });
+
+    els.workbench.querySelectorAll('[data-insert-equation]').forEach(btn => {
+        btn.addEventListener('click', () => insertEquation(btn.dataset.editorId));
     });
 }
 
@@ -459,6 +490,44 @@ function applyFormat(editorId, format) {
     updateFieldFromEditor(editorId, markdownFromVisual(visual));
 }
 
+function insertEquation(editorId) {
+    const latex = prompt('Enter LaTeX equation', 'x^2 + y^2 = z^2');
+    if (!latex) return;
+    const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+    if (!wrapper) return;
+    const markdown = `\\(${latex.trim()}\\)`;
+    if (wrapper.classList.contains('show-code')) {
+        const code = wrapper.querySelector('[data-code-editor]');
+        insertAtCursor(code, markdown);
+        code.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
+    const visual = wrapper.querySelector('[data-visual-editor]');
+    insertHtmlIntoVisualEditor(visual, mathHtml(latex.trim()));
+    updateFieldFromEditor(editorId, markdownFromVisual(visual));
+}
+
+function insertHtmlIntoVisualEditor(editor, html) {
+    editor.focus();
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const fragment = template.content;
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(fragment);
+        const spacer = document.createTextNode(' ');
+        range.insertNode(spacer);
+        range.setStartAfter(spacer);
+        range.setEndAfter(spacer);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    } else {
+        editor.append(fragment);
+    }
+}
+
 function wrapCodeSelection(textarea, format) {
     const marker = format === 'bold' ? '**' : '*';
     const start = textarea.selectionStart || 0;
@@ -468,6 +537,112 @@ function wrapCodeSelection(textarea, format) {
     textarea.setSelectionRange(start + marker.length, start + marker.length + selected.length);
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
     textarea.focus();
+}
+
+function toggleReusePanel() {
+    const panel = document.getElementById('reusePanel');
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) {
+        document.getElementById('reuseSearchInput').focus();
+        renderReuseResults();
+    }
+}
+
+function renderReuseResults() {
+    const input = document.getElementById('reuseSearchInput');
+    const results = document.getElementById('reuseResults');
+    if (!input || !results) return;
+    const query = input.value.trim().toLowerCase();
+    const activePaper = getActivePaper();
+    const matches = questionLibrary()
+        .filter(item => item.paperId !== activePaper.id || item.sectionId !== state.activeSectionId)
+        .filter(item => !query || plainText(item.question.text).toLowerCase().includes(query) || item.sectionName.toLowerCase().includes(query))
+        .slice(0, 20);
+    results.innerHTML = matches.length ? matches.map((item, index) => `
+        <button class="reuse-item" data-reuse-index="${index}">
+            <strong>${esc(plainText(item.question.text).slice(0, 90) || 'Untitled question')}</strong>
+            <span>${esc(item.paperTitle)} / ${esc(item.sectionName)} · Answer ${LABELS[item.question.correctIndex] || 'A'}</span>
+        </button>
+    `).join('') : '<div class="reuse-empty">No matching saved questions.</div>';
+    results.querySelectorAll('[data-reuse-index]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const item = matches[Number(btn.dataset.reuseIndex)];
+            reuseQuestion(item.question);
+        });
+    });
+}
+
+function reuseQuestion(question) {
+    const section = getActiveSection();
+    const copy = deepCopy(question);
+    copy.id = uid('q');
+    copy.options.forEach((option, index) => option.id = uid(`opt${index}`));
+    section.questions.push(copy);
+    render();
+    toast('Question reused');
+}
+
+function questionLibrary() {
+    return state.papers.flatMap(paper => paper.sections.flatMap(section =>
+        section.questions.map(question => ({
+            paperId: paper.id,
+            paperTitle: paper.title,
+            sectionId: section.id,
+            sectionName: section.name,
+            question,
+        }))
+    ));
+}
+
+function renderAutocomplete(editorId) {
+    const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+    if (!wrapper || wrapper.dataset.field !== 'text') return;
+    const list = wrapper.querySelector('[data-autocomplete-list]');
+    const question = findQuestion(wrapper.dataset.qid);
+    const value = question ? plainText(getQuestionField(question, wrapper.dataset.field)).trim().toLowerCase() : '';
+    if (!value || value.length < 3) {
+        hideAutocomplete(editorId);
+        return;
+    }
+    const matches = questionLibrary()
+        .filter(item => item.question.id !== wrapper.dataset.qid)
+        .filter(item => plainText(item.question.text).toLowerCase().includes(value))
+        .slice(0, 5);
+    if (!matches.length) {
+        hideAutocomplete(editorId);
+        return;
+    }
+    list.hidden = false;
+    list.innerHTML = matches.map((item, index) => `
+        <button type="button" data-autocomplete-index="${index}">
+            <strong>${esc(plainText(item.question.text).slice(0, 80))}</strong>
+            <span>${esc(item.paperTitle)} / ${esc(item.sectionName)}</span>
+        </button>
+    `).join('');
+    list.querySelectorAll('[data-autocomplete-index]').forEach(btn => {
+        btn.addEventListener('mousedown', event => {
+            event.preventDefault();
+            const item = matches[Number(btn.dataset.autocompleteIndex)];
+            applyQuestionSuggestion(wrapper.dataset.qid, item.question);
+        });
+    });
+}
+
+function hideAutocomplete(editorId) {
+    const list = document.querySelector(`[data-autocomplete-list][data-editor-id="${cssEscape(editorId)}"]`);
+    if (list) list.hidden = true;
+}
+
+function applyQuestionSuggestion(qid, suggestion) {
+    const question = findQuestion(qid);
+    if (!question) return;
+    const copy = deepCopy(suggestion);
+    question.text = copy.text;
+    question.options = copy.options;
+    question.correctIndex = copy.correctIndex;
+    question.layout = copy.layout;
+    render();
+    toast('Question filled from saved paper');
 }
 
 function emptyQuestions() {
@@ -825,11 +1000,61 @@ function totalMarks(paper) {
     return allQuestions(paper).reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
 }
 
+function plainText(markdown) {
+    return String(markdown || '')
+        .replace(/!\[[^\]]*\]\(data:image\/[^)]+\)/g, '[image]')
+        .replace(/\\\((.*?)\\\)/g, '$1')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function exportBackup() {
     downloadBlob(
         new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }),
         `mcq-paper-backup-${Date.now()}.json`
     );
+}
+
+function exportQuestionsCsv() {
+    const paper = getActivePaper();
+    if (!paper) return;
+    const rows = [['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option']];
+    paper.sections.forEach(section => {
+        section.questions.forEach(question => {
+            rows.push([
+                section.name,
+                plainText(question.text),
+                plainText(question.options[0]?.text || ''),
+                plainText(question.options[1]?.text || ''),
+                plainText(question.options[2]?.text || ''),
+                plainText(question.options[3]?.text || ''),
+                LABELS[question.correctIndex] || 'A',
+            ]);
+        });
+    });
+    downloadBlob(new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }), `${fileName(paper.title)}_questions.csv`);
+    toast('Questions CSV exported');
+}
+
+function exportAnswerKeyCsv() {
+    const paper = getActivePaper();
+    if (!paper) return;
+    const rows = [['section', 'question_number', 'correct_option']];
+    let number = 0;
+    paper.sections.forEach(section => {
+        section.questions.forEach(question => {
+            number += 1;
+            rows.push([section.name, number, LABELS[question.correctIndex] || 'A']);
+        });
+    });
+    downloadBlob(new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }), `${fileName(paper.title)}_answer_key.csv`);
+    toast('Answer key CSV exported');
+}
+
+function toCsv(rows) {
+    return rows.map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
 }
 
 function importBackup(event) {
@@ -855,10 +1080,284 @@ function importBackup(event) {
 function exportWord() {
     const paper = getActivePaper();
     if (!paper) return;
-    const html = buildWordHtml(paper);
-    downloadBlob(new Blob([html], { type: 'application/msword' }), `${fileName(paper.title)}.doc`);
-    toast('Word file exported');
+    const blob = buildDocxBlob(paper);
+    downloadBlob(blob, `${fileName(paper.title)}.docx`);
+    toast('DOCX exported');
 }
+
+function buildDocxBlob(paper) {
+    const media = [];
+    const documentXml = buildDocumentXml(paper, media);
+    const files = {
+        '[Content_Types].xml': buildContentTypes(media),
+        '_rels/.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>`,
+        'docProps/core.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<dc:title>${xmlEscape(paper.title)}</dc:title><dc:creator>MCQ Paper Studio</dc:creator><cp:lastModifiedBy>MCQ Paper Studio</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:modified>
+</cp:coreProperties>`,
+        'docProps/app.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>MCQ Paper Studio</Application></Properties>`,
+        'word/document.xml': documentXml,
+        'word/_rels/document.xml.rels': buildDocumentRels(media),
+    };
+    media.forEach(item => {
+        files[`word/media/${item.fileName}`] = item.bytes;
+    });
+    return new Blob([createZip(files)], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    });
+}
+
+function buildContentTypes(media) {
+    const defaults = new Map([
+        ['rels', 'application/vnd.openxmlformats-package.relationships+xml'],
+        ['xml', 'application/xml'],
+    ]);
+    media.forEach(item => defaults.set(item.ext, item.mime));
+    const defaultXml = [...defaults.entries()]
+        .map(([ext, type]) => `<Default Extension="${ext}" ContentType="${type}"/>`)
+        .join('');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+${defaultXml}
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>`;
+}
+
+function buildDocumentRels(media) {
+    const imageRels = media.map(item =>
+        `<Relationship Id="${item.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${item.fileName}"/>`
+    ).join('');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${imageRels}</Relationships>`;
+}
+
+function buildDocumentXml(paper, media) {
+    let body = '';
+    body += docxParagraph([docxTextRun(paper.title || 'Question Paper', { bold: true, size: 30 })], { align: 'center', after: 80 });
+    body += docxParagraph([
+        docxTextRun(`Class: ${paper.meta.className || ''}    Subject: ${paper.meta.subject || ''}    ${paper.meta.testName || ''}    Time: ${paper.meta.duration || ''}    Marks: ${paper.meta.marks || totalMarks(paper)}`, { size: 20 })
+    ], { align: 'center', after: 120 });
+    body += docxParagraph([docxTextRun('Name: ________________________________', { size: 22 })], { after: 120 });
+    if (paper.meta.instructions) {
+        body += docxParagraph([docxTextRun('Instructions: ', { bold: true }), ...docxInlineFromMarkdown(paper.meta.instructions, media)], { after: 100 });
+    }
+    let questionNumber = 0;
+    paper.sections.forEach(section => {
+        if (!section.questions.length) return;
+        body += docxParagraph([docxTextRun(section.name, { bold: true, size: 24 })], { before: 120, after: 70 });
+        section.questions.forEach(question => {
+            questionNumber += 1;
+            body += docxParagraph([docxTextRun(`${questionNumber}) `, { bold: true }), ...docxInlineFromMarkdown(question.text || '', media)], { after: 50 });
+            body += docxOptionsTable(question, media);
+        });
+    });
+    body += docxParagraph([docxTextRun('Answer Key', { bold: true, size: 24 })], { before: 180, after: 80 });
+    body += docxParagraph([docxTextRun(allQuestions(paper).map((q, i) => `${i + 1}. ${LABELS[q.correctIndex] || 'A'}`).join('    '))], { after: 80 });
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${DOCX_NS.w}" xmlns:r="${DOCX_NS.r}" xmlns:wp="${DOCX_NS.wp}" xmlns:a="${DOCX_NS.a}" xmlns:pic="${DOCX_NS.pic}" xmlns:m="${DOCX_NS.m}">
+<w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="360" w:footer="360" w:gutter="0"/></w:sectPr></w:body>
+</w:document>`;
+}
+
+function docxOptionsTable(question, media) {
+    const rows = question.layout === 'row'
+        ? [[0, 1, 2, 3]]
+        : question.layout === 'grid2'
+            ? [[0, 1], [2, 3]]
+            : [[0], [1], [2], [3]];
+    const colCount = rows[0].length;
+    const colWidth = Math.floor(9360 / colCount);
+    const grid = Array.from({ length: colCount }, () => `<w:gridCol w:w="${colWidth}"/>`).join('');
+    const body = rows.map(row => `<w:tr>${row.map(index => {
+        const runs = [docxTextRun(`${LABELS[index]}) `, { bold: true }), ...docxInlineFromMarkdown(question.options[index]?.text || '', media)];
+        return `<w:tc><w:tcPr><w:tcW w:w="${colWidth}" w:type="dxa"/></w:tcPr>${docxParagraph(runs, { after: 20 })}</w:tc>`;
+    }).join('')}</w:tr>`).join('');
+    return `<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${body}</w:tbl>${docxParagraph([], { after: 80 })}`;
+}
+
+function docxInlineFromMarkdown(markdown, media) {
+    const pieces = [];
+    parseDocxMarkdown(markdown).forEach(segment => {
+        if (segment.type === 'text') pieces.push(...docxTextRunsFromMarkdownText(segment.text));
+        if (segment.type === 'math') pieces.push(docxMath(segment.latex));
+        if (segment.type === 'image') pieces.push(docxImageRun(segment.src, media, 160, 100));
+    });
+    return pieces;
+}
+
+function parseDocxMarkdown(markdown) {
+    const source = String(markdown || '');
+    const segments = [];
+    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)/g;
+    let last = 0;
+    let match;
+    while ((match = tokenRe.exec(source))) {
+        if (match.index > last) segments.push({ type: 'text', text: source.slice(last, match.index) });
+        if (match[2]) segments.push({ type: 'image', alt: match[1], src: match[2] });
+        else segments.push({ type: 'math', latex: match[3] });
+        last = tokenRe.lastIndex;
+    }
+    if (last < source.length) segments.push({ type: 'text', text: source.slice(last) });
+    return segments;
+}
+
+function docxTextRunsFromMarkdownText(text) {
+    const runs = [];
+    const re = /(\*\*([^*]+)\*\*|\*([^*]+)\*)/g;
+    let last = 0;
+    let match;
+    while ((match = re.exec(text))) {
+        runs.push(...docxTextRuns(text.slice(last, match.index)));
+        runs.push(...docxTextRuns(match[2] || match[3] || '', { bold: !!match[2], italic: !!match[3] }));
+        last = re.lastIndex;
+    }
+    runs.push(...docxTextRuns(text.slice(last)));
+    return runs;
+}
+
+function docxTextRuns(text, opts = {}) {
+    return String(text || '').split('\n').flatMap((part, index, arr) => {
+        const out = [];
+        if (part) out.push(docxTextRun(part, opts));
+        if (index < arr.length - 1) out.push('<w:r><w:br/></w:r>');
+        return out;
+    });
+}
+
+function docxTextRun(text, opts = {}) {
+    const props = [];
+    if (opts.bold) props.push('<w:b/>');
+    if (opts.italic) props.push('<w:i/>');
+    if (opts.size) props.push(`<w:sz w:val="${opts.size}"/>`);
+    const rPr = props.length ? `<w:rPr>${props.join('')}</w:rPr>` : '';
+    return `<w:r>${rPr}<w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>`;
+}
+
+function docxParagraph(runs, opts = {}) {
+    const pPr = [];
+    if (opts.align) pPr.push(`<w:jc w:val="${opts.align}"/>`);
+    if (opts.before || opts.after !== undefined) pPr.push(`<w:spacing w:before="${opts.before || 0}" w:after="${opts.after || 0}"/>`);
+    return `<w:p>${pPr.length ? `<w:pPr>${pPr.join('')}</w:pPr>` : ''}${runs.join('')}</w:p>`;
+}
+
+function docxMath(latex) {
+    const trimmed = String(latex || '').trim();
+    const frac = trimmed.match(/^\\frac\{([^{}]+)\}\{([^{}]+)\}$/);
+    if (frac) return `<m:oMath><m:f><m:num><m:r><m:t>${xmlEscape(frac[1])}</m:t></m:r></m:num><m:den><m:r><m:t>${xmlEscape(frac[2])}</m:t></m:r></m:den></m:f></m:oMath>`;
+    return `<m:oMath><m:r><m:t>${xmlEscape(cleanLatex(trimmed))}</m:t></m:r></m:oMath>`;
+}
+
+function cleanLatex(latex) {
+    return latex.replace(/\\_/g, '_').replace(/\\times/g, '×').replace(/\\div/g, '÷').replace(/\\pm/g, '±').replace(/\\cdot/g, '·').replace(/\\degree/g, '°').replace(/\\/g, '');
+}
+
+function docxImageRun(dataUrl, media, widthPx, heightPx) {
+    const item = addMedia(dataUrl, media);
+    if (!item) return '';
+    const cx = Math.round(widthPx * 9525);
+    const cy = Math.round(heightPx * 9525);
+    return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${item.docPrId}" name="${xmlEscape(item.fileName)}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="${xmlEscape(item.fileName)}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${item.rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+}
+
+function addMedia(dataUrl, media) {
+    const match = String(dataUrl || '').match(/^data:(image\/(png|jpe?g|gif));base64,(.+)$/i);
+    if (!match) return null;
+    const existing = media.find(item => item.dataUrl === dataUrl);
+    if (existing) return existing;
+    const ext = match[2].toLowerCase() === 'jpeg' ? 'jpg' : match[2].toLowerCase();
+    const id = media.length + 1;
+    const item = {
+        dataUrl,
+        mime: match[1].toLowerCase(),
+        ext,
+        bytes: base64ToUint8(match[3]),
+        fileName: `image${id}.${ext}`,
+        rId: `rId${id}`,
+        docPrId: id,
+    };
+    media.push(item);
+    return item;
+}
+
+function base64ToUint8(base64) {
+    const bin = atob(base64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
+function xmlEscape(str) {
+    return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+function createZip(files) {
+    const encoder = new TextEncoder();
+    const localParts = [];
+    const centralParts = [];
+    let offset = 0;
+    Object.entries(files).forEach(([name, content]) => {
+        const nameBytes = encoder.encode(name);
+        const data = typeof content === 'string' ? encoder.encode(content) : content;
+        const crc = crc32(data);
+        const local = new Uint8Array(30 + nameBytes.length);
+        const lv = new DataView(local.buffer);
+        lv.setUint32(0, 0x04034b50, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint16(8, 0, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, data.length, true);
+        lv.setUint32(22, data.length, true);
+        lv.setUint16(26, nameBytes.length, true);
+        local.set(nameBytes, 30);
+        localParts.push(local, data);
+        const central = new Uint8Array(46 + nameBytes.length);
+        const cv = new DataView(central.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, data.length, true);
+        cv.setUint32(24, data.length, true);
+        cv.setUint16(28, nameBytes.length, true);
+        cv.setUint32(42, offset, true);
+        central.set(nameBytes, 46);
+        centralParts.push(central);
+        offset += local.length + data.length;
+    });
+    const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+    const end = new Uint8Array(22);
+    const ev = new DataView(end.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, centralParts.length, true);
+    ev.setUint16(10, centralParts.length, true);
+    ev.setUint32(12, centralSize, true);
+    ev.setUint32(16, offset, true);
+    return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
+}
+
+function crc32(data) {
+    let crc = -1;
+    for (let i = 0; i < data.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ data[i]) & 0xff];
+    return (crc ^ -1) >>> 0;
+}
+
+const CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        table[i] = c >>> 0;
+    }
+    return table;
+})();
 
 function buildWordHtml(paper) {
     const questionBlocks = [];
