@@ -19,11 +19,77 @@ const DOCX_NS = {
     m: 'http://schemas.openxmlformats.org/officeDocument/2006/math',
 };
 
+const TAG_TAXONOMY = {
+    'Subject': ['Mathematics', 'Science', 'Physics', 'Chemistry', 'Biology', 'English', 'Social Studies', 'Computer Science'],
+    'Class': ['VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'],
+    'Exam Type': ['Practice', 'Homework', 'Unit Test', 'Monthly Test', 'Mid Term', 'Quarterly', 'Half Yearly', 'Pre Final', 'Final Exam', 'Mock Test'],
+    'Difficulty': ['Easy', 'Medium', 'Hard', 'Very Hard'],
+    'Topic': ['Algebra', 'Geometry', 'Trigonometry', 'Mensuration', 'Probability', 'Statistics', 'Motion', 'Force', 'Electricity', 'Magnetism', 'Human Body']
+};
+
+const FORMULA_LIBRARY = [
+    // Mathematics - Basic
+    { id: 'math_x2', category: 'Mathematics', name: 'x Squared', latex: 'x^2', description: 'x raised to power 2' },
+    { id: 'math_x3', category: 'Mathematics', name: 'x Cubed', latex: 'x^3', description: 'x raised to power 3' },
+    { id: 'math_sqrt', category: 'Mathematics', name: 'Square Root', latex: '\\sqrt{x}', description: 'Square root function' },
+    { id: 'math_nroot', category: 'Mathematics', name: 'n-th Root', latex: '\\sqrt[n]{x}', description: 'n-th root of variable' },
+    { id: 'math_frac', category: 'Mathematics', name: 'Fraction', latex: '\\frac{a}{b}', description: 'Fraction layout' },
+    { id: 'math_pi', category: 'Mathematics', name: 'Pi', latex: '\\pi', description: 'Pi symbol' },
+    { id: 'math_theta', category: 'Mathematics', name: 'Theta', latex: '\\theta', description: 'Theta angle symbol' },
+    { id: 'math_greek', category: 'Mathematics', name: 'Greek Letters (alpha, beta, gamma)', latex: '\\alpha \\beta \\gamma', description: 'Greek alpha, beta, gamma symbols' },
+    // Mathematics - Algebra
+    { id: 'math_quadratic', category: 'Mathematics', name: 'Quadratic Formula', latex: 'x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}', description: 'Find roots of quadratic equation' },
+    { id: 'math_binomial', category: 'Mathematics', name: 'Binomial Theorem', latex: '(a+b)^2 = a^2 + 2ab + b^2', description: 'Squared binomial expansion expansion' },
+    { id: 'math_distance', category: 'Mathematics', name: 'Distance Formula', latex: 'd = \\sqrt{(x_2-x_1)^2 + (y_2-y_1)^2}', description: 'Distance between coordinates' },
+    { id: 'math_midpoint', category: 'Mathematics', name: 'Midpoint Formula', latex: 'M = \\left(\\frac{x_1+x_2}{2}, \\frac{y_1+y_2}{2}\\right)', description: 'Midpoint coordinates of a line segment' },
+    { id: 'math_slope', category: 'Mathematics', name: 'Slope Formula', latex: 'm = \\frac{y_2-y_1}{x_2-x_1}', description: 'Slope of a straight line' },
+    // Mathematics - Statistics
+    { id: 'math_mean', category: 'Mathematics', name: 'Mean (Average)', latex: '\\bar{x} = \\frac{1}{n}\\sum_{i=1}^{n} x_i', description: 'Arithmetic mean of a set' },
+    { id: 'math_stddev', category: 'Mathematics', name: 'Standard Deviation', latex: '\\sigma = \\sqrt{\\frac{1}{N}\\sum_{i=1}^{N}(x_i-\\mu)^2}', description: 'Statistical standard deviation dispersion' },
+    // Mathematics - Calculus
+    { id: 'math_derivative', category: 'Mathematics', name: 'Derivative Definition', latex: 'f\'(x) = \\lim_{h \\to 0} \\frac{f(x+h)-f(x)}{h}', description: 'Limit definition of derivative' },
+    { id: 'math_integral', category: 'Mathematics', name: 'Definite Integral', latex: '\\int_{a}^{b} f(x) \\, dx', description: 'Calculus definite integral integration' },
+    { id: 'math_limit', category: 'Mathematics', name: 'Limit', latex: '\\lim_{x \\to a} f(x)', description: 'Limit function value limit' },
+    { id: 'math_summation', category: 'Mathematics', name: 'Arithmetic Summation', latex: '\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}', description: 'Sum of first n natural integers' },
+    // Mathematics - Matrices / Vectors / Probability / Trig
+    { id: 'math_matrix', category: 'Mathematics', name: '2x2 Matrix', latex: '\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}', description: 'Matrix array rows and columns' },
+    { id: 'math_vector', category: 'Mathematics', name: 'Vector Length', latex: '|\\vec{v}| = \\sqrt{v_x^2 + v_y^2 + v_z^2}', description: 'Magnitude of a 3D vector length' },
+    { id: 'math_bayes', category: 'Mathematics', name: 'Bayes\' Theorem', latex: 'P(A|B) = \\frac{P(B|A)P(A)}{P(B)}', description: 'Conditional probability theorem' },
+    { id: 'math_trig_identity', category: 'Mathematics', name: 'Pythagorean Trig Identity', latex: '\\sin^2\\theta + \\cos^2\\theta = 1', description: 'Fundamental trigonometric identity sine cosine' },
+    // Physics
+    { id: 'phys_newton2', category: 'Physics', name: 'Newton\'s Second Law', latex: 'F = ma', description: 'Force equals mass times acceleration' },
+    { id: 'phys_gravity', category: 'Physics', name: 'Gravitational Force', latex: 'F = G\\frac{m_1m_2}{r^2}', description: 'Universal gravitation formula' },
+    { id: 'phys_ke', category: 'Physics', name: 'Kinetic Energy', latex: 'KE = \\frac{1}{2}mv^2', description: 'Mechanical kinetic energy movement' },
+    { id: 'phys_pe', category: 'Physics', name: 'Potential Energy', latex: 'PE = mgh', description: 'Gravitational potential energy height' },
+    { id: 'phys_momentum', category: 'Physics', name: 'Linear Momentum', latex: 'p = mv', description: 'Linear momentum mass velocity' },
+    { id: 'phys_power', category: 'Physics', name: 'Mechanical Power', latex: 'P = \\frac{W}{t}', description: 'Work done divided by time' },
+    { id: 'phys_ohms', category: 'Physics', name: 'Ohm\'s Law', latex: 'V = IR', description: 'Voltage current resistance relationship' },
+    { id: 'phys_electric_power', category: 'Physics', name: 'Electric Power', latex: 'P = VI', description: 'Electrical power voltage current' },
+    { id: 'phys_lens', category: 'Physics', name: 'Thin Lens Formula', latex: '\\frac{1}{f} = \\frac{1}{v} - \\frac{1}{u}', description: 'Lens focal distance formula' },
+    { id: 'phys_wave', category: 'Physics', name: 'Wave Equation', latex: 'v = f\\lambda', description: 'Wave velocity frequency wavelength' },
+    { id: 'phys_relativity', category: 'Physics', name: 'Einstein Relativity', latex: 'E = mc^2', description: 'Mass energy equivalence relativity' },
+    // Chemistry
+    { id: 'chem_gas_law', category: 'Chemistry', name: 'Ideal Gas Law', latex: 'PV = nRT', description: 'Thermodynamics ideal gas constant' },
+    { id: 'chem_ph', category: 'Chemistry', name: 'pH Definition', latex: '\\text{pH} = -\\log_{10}[\\text{H}^+]', description: 'Logarithmic hydrogen ion concentration acidity' },
+    { id: 'chem_molarity', category: 'Chemistry', name: 'Molarity', latex: 'M = \\frac{\\text{moles of solute}}{\\text{litres of solution}}', description: 'Molarity solute volume density concentration' },
+    { id: 'chem_yield', category: 'Chemistry', name: 'Percentage Yield', latex: '\\%\\text{ Yield} = \\frac{\\text{Actual Yield}}{\\text{Theoretical Yield}} \\times 100', description: 'Yield ratio chemical reaction output' },
+    { id: 'chem_avogadro', category: 'Chemistry', name: 'Avogadro\'s Law', latex: '\\frac{V_1}{n_1} = \\frac{V_2}{n_2}', description: 'Volume moles proportionality law' },
+    { id: 'chem_reaction_arrow', category: 'Chemistry', name: 'Reaction Arrow', latex: '\\rightarrow', description: 'Forward reaction chemical equation arrow' },
+    { id: 'chem_equilibrium_arrow', category: 'Chemistry', name: 'Equilibrium Arrow', latex: '\\rightleftharpoons', description: 'Reversible reaction equilibrium' },
+    { id: 'chem_electron_conf', category: 'Chemistry', name: 'Electron Configuration (e.g. Neon)', latex: '1s^2 2s^2 2p^6', description: 'Electron shells orbitals configuration' }
+];
+
+let activeMathfield = null;
+
 let state = {
     papers: [],
     activePaperId: null,
     activeSectionId: null,
+    filterSearchQuery: '',
+    filterSelectedTags: [],
 };
+
+let cachedUniqueTagsStr = '';
 
 const els = {
     paperList: document.getElementById('paperList'),
@@ -33,6 +99,8 @@ const els = {
     teacherPanel: document.getElementById('teacherPanel'),
     toast: document.getElementById('toast'),
     fileInput: document.getElementById('fileInput'),
+    paperSearchInput: document.getElementById('paperSearchInput'),
+    sidebarFilterTagsList: document.getElementById('sidebarFilterTagsList'),
 };
 
 document.getElementById('newPaperBtn').addEventListener('click', createPaper);
@@ -43,10 +111,21 @@ document.getElementById('answerCsvBtn').addEventListener('click', exportAnswerKe
 document.getElementById('printBtn').addEventListener('click', () => window.print());
 document.getElementById('wordBtn').addEventListener('click', exportWord);
 els.fileInput.addEventListener('change', importBackup);
+els.paperSearchInput.addEventListener('input', e => {
+    state.filterSearchQuery = e.target.value;
+    renderPaperList();
+});
+document.getElementById('tagScrollUpBtn').addEventListener('click', () => {
+    document.getElementById('tagFilterContainer')?.scrollBy({ top: -40, behavior: 'smooth' });
+});
+document.getElementById('tagScrollDownBtn').addEventListener('click', () => {
+    document.getElementById('tagFilterContainer')?.scrollBy({ top: 40, behavior: 'smooth' });
+});
 
 document.addEventListener('paste', handlePaste);
 
 load();
+initEquationModal();
 render();
 
 function load() {
@@ -75,6 +154,7 @@ function save() {
 function normalize() {
     state.papers.forEach(paper => {
         paper.meta ||= {};
+        paper.tags ||= [];
         paper.sections ||= [];
         paper.sections.forEach(section => {
             section.questions ||= [];
@@ -164,15 +244,42 @@ function render() {
 }
 
 function renderPaperList() {
-    els.paperList.innerHTML = state.papers.map(paper => {
+    const query = (state.filterSearchQuery || '').toLowerCase().trim();
+    const selectedTags = state.filterSelectedTags || [];
+    
+    const filteredPapers = state.papers.filter(paper => {
+        let matchQuery = true;
+        if (query) {
+            const titleMatch = (paper.title || '').toLowerCase().includes(query);
+            const subjectMatch = (paper.meta.subject || '').toLowerCase().includes(query);
+            const classMatch = (paper.meta.className || '').toLowerCase().includes(query);
+            const tagsMatch = (paper.tags || []).some(t => t.toLowerCase().includes(query));
+            matchQuery = titleMatch || subjectMatch || classMatch || tagsMatch;
+        }
+        
+        let matchTags = true;
+        if (selectedTags.length) {
+            matchTags = selectedTags.every(t => (paper.tags || []).includes(t));
+        }
+        
+        return matchQuery && matchTags;
+    });
+
+    els.paperList.innerHTML = filteredPapers.map(paper => {
         const count = countQuestions(paper);
         return `
             <button class="paper-row ${paper.id === state.activePaperId ? 'active' : ''}" data-action="select-paper" data-id="${paper.id}">
                 <strong>${esc(paper.title)}</strong>
                 <span>${esc(paper.meta.className || 'Class')} · ${count} questions</span>
+                ${paper.tags && paper.tags.length ? `
+                <div class="sidebar-paper-tags">
+                    ${paper.tags.map(tag => `<span class="sidebar-tag-chip">${esc(tag)}</span>`).join('')}
+                </div>
+                ` : ''}
             </button>
         `;
     }).join('');
+    
     els.paperList.querySelectorAll('[data-action="select-paper"]').forEach(btn => {
         btn.addEventListener('click', () => {
             state.activePaperId = btn.dataset.id;
@@ -180,6 +287,47 @@ function renderPaperList() {
             render();
         });
     });
+    
+    renderSidebarFilterTags();
+}
+
+function renderSidebarFilterTags() {
+    const listEl = document.getElementById('sidebarFilterTagsList');
+    if (!listEl) return;
+    
+    const allUniqueTags = Array.from(new Set(state.papers.flatMap(p => p.tags || []))).sort();
+    const uniqueTagsStr = JSON.stringify(allUniqueTags);
+    
+    if (uniqueTagsStr !== cachedUniqueTagsStr) {
+        cachedUniqueTagsStr = uniqueTagsStr;
+        listEl.innerHTML = allUniqueTags.map(tag => {
+            const isChecked = (state.filterSelectedTags || []).includes(tag);
+            return `
+                <label class="sidebar-filter-tag-item">
+                    <input type="checkbox" data-tag="${esc(tag)}" ${isChecked ? 'checked' : ''} />
+                    <span>${esc(tag)}</span>
+                </label>
+            `;
+        }).join('');
+        
+        listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const tag = cb.dataset.tag;
+                state.filterSelectedTags ||= [];
+                if (cb.checked) {
+                    if (!state.filterSelectedTags.includes(tag)) state.filterSelectedTags.push(tag);
+                } else {
+                    state.filterSelectedTags = state.filterSelectedTags.filter(t => t !== tag);
+                }
+                renderPaperList();
+            });
+        });
+    } else {
+        listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            const tag = cb.dataset.tag;
+            cb.checked = (state.filterSelectedTags || []).includes(tag);
+        });
+    }
 }
 
 function renderPaperSetup() {
@@ -193,6 +341,16 @@ function renderPaperSetup() {
             ${field('Test', 'testName', paper.meta.testName, 'Unit Test')}
             ${field('Time', 'duration', paper.meta.duration, '1 hr')}
             ${field('Marks', 'marks', paper.meta.marks, '60')}
+            
+            <div class="field tags-field" style="grid-column: 2 / -1;">
+                <label>Tags</label>
+                <div class="tags-input-container" id="tagsInputContainer">
+                    <div class="tags-chips" id="tagsChips"></div>
+                    <input type="text" id="tagTextInput" placeholder="Add tag..." autocomplete="off" />
+                    <div class="tags-dropdown" id="tagsDropdown" hidden></div>
+                </div>
+            </div>
+            
             <div class="field instructions-field">
                 <label>Instructions</label>
                 <textarea data-meta="instructions" placeholder="Instructions shown on the paper">${esc(paper.meta.instructions)}</textarea>
@@ -202,6 +360,181 @@ function renderPaperSetup() {
     els.paperSetup.querySelectorAll('[data-meta]').forEach(input => {
         input.addEventListener('input', () => updateMeta(input.dataset.meta, input.value));
     });
+
+    const container = document.getElementById('tagsInputContainer');
+    const input = document.getElementById('tagTextInput');
+    const dropdown = document.getElementById('tagsDropdown');
+    
+    let visibleOptions = [];
+    let activeOptionIndex = -1;
+
+    function renderChips() {
+        const chipsContainer = document.getElementById('tagsChips');
+        if (!chipsContainer) return;
+        chipsContainer.innerHTML = (paper.tags || []).map(tag => `
+            <span class="tag-chip">
+                ${esc(tag)}
+                <span class="tag-remove" data-tag="${esc(tag)}">&times;</span>
+            </span>
+        `).join('');
+
+        chipsContainer.querySelectorAll('.tag-remove').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                const tagToRemove = btn.dataset.tag;
+                paper.tags = (paper.tags || []).filter(t => t !== tagToRemove);
+                renderChips();
+                renderPaperList();
+                save();
+            });
+        });
+    }
+
+    function renderDropdown(query = '') {
+        query = query.trim().toLowerCase();
+        const categories = Object.keys(TAG_TAXONOMY);
+        let customOption = null;
+        let groupedHtml = '';
+        
+        visibleOptions = [];
+
+        if (query && !(paper.tags || []).some(t => t.toLowerCase() === query)) {
+            customOption = { type: 'custom', value: query };
+            visibleOptions.push(customOption);
+        }
+
+        categories.forEach(cat => {
+            const available = TAG_TAXONOMY[cat].filter(tag => {
+                const matchesQuery = tag.toLowerCase().includes(query);
+                const notSelected = !(paper.tags || []).includes(tag);
+                return matchesQuery && notSelected;
+            });
+
+            if (available.length) {
+                groupedHtml += `
+                    <div class="tags-dropdown-category">
+                        <div class="tags-dropdown-category-title">${esc(cat)}</div>
+                        <div class="tags-dropdown-options">
+                            ${available.map(tag => {
+                                const idx = visibleOptions.length;
+                                visibleOptions.push({ type: 'taxonomy', value: tag });
+                                return `<div class="tags-dropdown-option" data-index="${idx}">${esc(tag)}</div>`;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        let html = '';
+        if (customOption) {
+            html += `<div class="tags-dropdown-custom-option" data-index="0">Create custom tag "${esc(query)}" (Press Enter)</div>`;
+        }
+        html += groupedHtml;
+
+        if (!html) {
+            dropdown.hidden = true;
+            return;
+        }
+
+        dropdown.innerHTML = html;
+        dropdown.hidden = false;
+
+        dropdown.querySelectorAll('.tags-dropdown-option, .tags-dropdown-custom-option').forEach(el => {
+            el.addEventListener('mousedown', e => {
+                e.preventDefault();
+            });
+            el.addEventListener('click', () => {
+                const optIndex = parseInt(el.dataset.index);
+                const opt = visibleOptions[optIndex];
+                if (opt) {
+                    addTag(opt.value);
+                }
+            });
+        });
+
+        updateActiveHighlight();
+    }
+
+    function updateActiveHighlight() {
+        const optionEls = dropdown.querySelectorAll('.tags-dropdown-option, .tags-dropdown-custom-option');
+        optionEls.forEach(el => {
+            const idx = parseInt(el.dataset.index);
+            if (idx === activeOptionIndex) {
+                el.classList.add('active');
+                el.scrollIntoView({ block: 'nearest' });
+            } else {
+                el.classList.remove('active');
+            }
+        });
+    }
+
+    function addTag(tag) {
+        tag = tag.trim();
+        if (tag && !(paper.tags || []).includes(tag)) {
+            paper.tags ||= [];
+            paper.tags.push(tag);
+            renderChips();
+            renderPaperList();
+            save();
+        }
+        input.value = '';
+        activeOptionIndex = -1;
+        dropdown.hidden = true;
+    }
+
+    container.addEventListener('click', () => input.focus());
+
+    input.addEventListener('focus', () => {
+        activeOptionIndex = -1;
+        renderDropdown(input.value);
+    });
+
+    input.addEventListener('blur', () => {
+        setTimeout(() => {
+            dropdown.hidden = true;
+        }, 150);
+    });
+
+    input.addEventListener('input', () => {
+        activeOptionIndex = -1;
+        renderDropdown(input.value);
+    });
+
+    input.addEventListener('keydown', e => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (visibleOptions.length) {
+                activeOptionIndex = (activeOptionIndex + 1) % visibleOptions.length;
+                updateActiveHighlight();
+            }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (visibleOptions.length) {
+                activeOptionIndex = (activeOptionIndex - 1 + visibleOptions.length) % visibleOptions.length;
+                updateActiveHighlight();
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeOptionIndex >= 0 && activeOptionIndex < visibleOptions.length) {
+                addTag(visibleOptions[activeOptionIndex].value);
+            } else if (input.value.trim()) {
+                addTag(input.value);
+            }
+        } else if (e.key === 'Backspace' && !input.value) {
+            if (paper.tags && paper.tags.length) {
+                paper.tags.pop();
+                renderChips();
+                renderPaperList();
+                save();
+            }
+        } else if (e.key === 'Escape') {
+            dropdown.hidden = true;
+            input.blur();
+        }
+    });
+
+    renderChips();
 }
 
 function field(label, key, value, placeholder) {
@@ -258,10 +591,13 @@ function renderWorkbench() {
         </div>
         ${section.questions.length ? section.questions.map((question, index) => questionCard(question, index)).join('') : emptyQuestions()}
         ${section.questions.length ? `
-        <div class="bottom-add-container">
+        <div class="bottom-add-container" style="padding-bottom: 10px;">
             <button class="btn success" id="bottomAddQuestionBtn">+ Add Question</button>
         </div>
         ` : ''}
+        <div class="bottom-add-container" style="margin-top: 15px; padding-bottom: 50px;">
+            <button class="btn primary" id="bottomAddSectionBtn">+ Add Section</button>
+        </div>
     `;
 
     document.getElementById('sectionNameInput').addEventListener('input', e => {
@@ -273,6 +609,7 @@ function renderWorkbench() {
     });
     document.getElementById('addQuestionBtn').addEventListener('click', () => addQuestion(section.id));
     document.getElementById('bottomAddQuestionBtn').addEventListener('click', () => addQuestion(section.id));
+    document.getElementById('bottomAddSectionBtn').addEventListener('click', addSection);
     document.getElementById('reuseQuestionBtn').addEventListener('click', toggleReusePanel);
     document.getElementById('reuseSearchInput').addEventListener('input', renderReuseResults);
     document.getElementById('duplicateSectionBtn').addEventListener('click', duplicateSection);
@@ -411,7 +748,9 @@ function bindRichEditors() {
         editor.addEventListener('blur', () => {
             updateFieldFromEditor(editor.dataset.editorId, markdownFromVisual(editor));
             setTimeout(() => hideAutocomplete(editor.dataset.editorId), 120);
-            render();
+            if (!isEquationModalOpen) {
+                render();
+            }
         });
         editor.addEventListener('focus', () => renderAutocomplete(editor.dataset.editorId));
     });
@@ -425,6 +764,12 @@ function bindRichEditors() {
         editor.addEventListener('focus', () => renderAutocomplete(editor.dataset.editorId));
         editor.addEventListener('blur', () => setTimeout(() => hideAutocomplete(editor.dataset.editorId), 120));
         autoResize(editor);
+    });
+
+    els.workbench.querySelectorAll('[data-format], [data-toggle-code], [data-insert-equation]').forEach(btn => {
+        btn.addEventListener('mousedown', e => {
+            e.preventDefault();
+        });
     });
 
     els.workbench.querySelectorAll('[data-format]').forEach(btn => {
@@ -493,58 +838,520 @@ function toggleCodeMode(editorId) {
 function applyFormat(editorId, format) {
     const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
     if (!wrapper) return;
+    
+    const saved = editorSelections[editorId];
+    
     if (wrapper.classList.contains('show-code')) {
-        wrapCodeSelection(wrapper.querySelector('[data-code-editor]'), format);
+        const code = wrapper.querySelector('[data-code-editor]');
+        const start = (saved && !saved.isVisual) ? saved.selectionStart : code.selectionStart;
+        const end = (saved && !saved.isVisual) ? saved.selectionEnd : code.selectionEnd;
+        wrapCodeSelection(code, format, start, end);
         return;
     }
+    
     const visual = wrapper.querySelector('[data-visual-editor]');
     visual.focus();
+    
+    const selection = window.getSelection();
+    if (saved && saved.isVisual && saved.range && selection) {
+        selection.removeAllRanges();
+        selection.addRange(saved.range);
+    }
+    
     document.execCommand(format === 'bold' ? 'bold' : 'italic', false, null);
     updateFieldFromEditor(editorId, markdownFromVisual(visual));
 }
 
-function insertEquation(editorId) {
-    const latex = prompt('Enter LaTeX equation', 'x^2 + y^2 = z^2');
-    if (!latex) return;
-    const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
-    if (!wrapper) return;
-    const markdown = `\\(${latex.trim()}\\)`;
-    if (wrapper.classList.contains('show-code')) {
-        const code = wrapper.querySelector('[data-code-editor]');
-        insertAtCursor(code, markdown);
-        code.dispatchEvent(new Event('input', { bubbles: true }));
-        return;
+let activeInsertEquationEditorId = null;
+let savedRange = null;
+let savedSelectionStart = null;
+let savedSelectionEnd = null;
+let isEquationModalOpen = false;
+let equationActiveCategory = 'all';
+let equationFavorites = [];
+let equationRecent = [];
+
+const editorSelections = {};
+let lastActiveEditorKey = null;
+
+const getEditorKey = (el) => {
+    if (!el) return null;
+    const richEditor = el.closest('[data-rich-editor]');
+    if (richEditor) {
+        return richEditor.dataset.editorId;
     }
-    const visual = wrapper.querySelector('[data-visual-editor]');
-    insertHtmlIntoVisualEditor(visual, mathHtml(latex.trim()));
-    updateFieldFromEditor(editorId, markdownFromVisual(visual));
+    if (el.dataset.meta) {
+        return `meta_${el.dataset.meta}`;
+    }
+    return el.id || el.name || null;
+};
+
+const updateActiveSelection = () => {
+    const activeEl = document.activeElement;
+    if (!activeEl) return;
+    
+    if (activeEl.id === 'equationSearchInput' || activeEl.id === 'equationLatexEditor') return;
+    if (activeEl.id === 'tagsSearchInput' || activeEl.id === 'tagInputField') return;
+    
+    const key = getEditorKey(activeEl);
+    if (!key) return;
+    
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const visualEditor = activeEl.closest('[data-visual-editor]');
+        if (visualEditor) {
+            editorSelections[key] = {
+                key: key,
+                element: visualEditor,
+                range: range.cloneRange(),
+                isVisual: true
+            };
+            lastActiveEditorKey = key;
+            return;
+        }
+    }
+    
+    if (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT') {
+        editorSelections[key] = {
+            key: key,
+            element: activeEl,
+            selectionStart: activeEl.selectionStart,
+            selectionEnd: activeEl.selectionEnd,
+            isVisual: false
+        };
+        lastActiveEditorKey = key;
+    }
+};
+
+document.addEventListener('selectionchange', updateActiveSelection);
+document.addEventListener('keyup', updateActiveSelection);
+document.addEventListener('mouseup', updateActiveSelection);
+document.addEventListener('focus', updateActiveSelection, true);
+try {
+    equationFavorites = JSON.parse(localStorage.getItem('school_mcq_paper_studio_favorite_formulas') || '[]');
+} catch (e) {
+    equationFavorites = [];
+}
+try {
+    const raw = localStorage.getItem('school_mcq_paper_studio_recent_formulas');
+    if (raw) {
+        const parsed = JSON.parse(raw);
+        equationRecent = parsed.map(item => {
+            if (typeof item === 'string') {
+                return FORMULA_LIBRARY.find(f => f.id === item) || { id: item, category: 'Custom', name: item, latex: item };
+            }
+            return item;
+        }).filter(f => f);
+    }
+} catch (e) {
+    equationRecent = [];
 }
 
-function insertHtmlIntoVisualEditor(editor, html) {
-    editor.focus();
+function saveEquationFavorites() {
+    localStorage.setItem('school_mcq_paper_studio_favorite_formulas', JSON.stringify(equationFavorites));
+}
+
+function saveEquationRecent() {
+    localStorage.setItem('school_mcq_paper_studio_recent_formulas', JSON.stringify(equationRecent));
+}
+
+function insertEquation(editorId) {
+    activeInsertEquationEditorId = editorId || lastActiveEditorKey;
+    isEquationModalOpen = true;
+    
+    const targetKey = activeInsertEquationEditorId;
+    const saved = editorSelections[targetKey];
+    if (saved) {
+        savedRange = saved.isVisual ? saved.range : null;
+        savedSelectionStart = !saved.isVisual ? saved.selectionStart : null;
+        savedSelectionEnd = !saved.isVisual ? saved.selectionEnd : null;
+    } else {
+        savedRange = null;
+        savedSelectionStart = null;
+        savedSelectionEnd = null;
+    }
+    
+    const searchInput = document.getElementById('equationSearchInput');
+    if (searchInput) searchInput.value = '';
+    
+    equationActiveCategory = 'all';
+    const categoryBtns = document.querySelectorAll('#equationModal .category-btn');
+    categoryBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.category === 'all');
+    });
+
+    const modal = document.getElementById('equationModal');
+    if (modal) {
+        modal.hidden = false;
+    }
+
+    const latexEditor = document.getElementById('equationLatexEditor');
+    if (latexEditor) {
+        latexEditor.value = '';
+    }
+    
+    renderEquationPreview('');
+    renderEquationList();
+    
+    const container = document.getElementById('mathfieldContainer');
+    if (container) {
+        container.innerHTML = '';
+        const mathfield = document.createElement('math-field');
+        mathfield.id = 'equationMathfield';
+        mathfield.setAttribute('virtual-keyboard-mode', 'auto');
+        mathfield.style.width = '100%';
+        mathfield.style.minHeight = '70px';
+        mathfield.style.fontSize = '16px';
+        mathfield.style.padding = '8px';
+        mathfield.style.border = '1px solid var(--line)';
+        mathfield.style.borderRadius = '8px';
+        mathfield.style.background = '#fff';
+        mathfield.style.outline = 'none';
+        mathfield.value = '';
+        container.appendChild(mathfield);
+        activeMathfield = mathfield;
+
+        mathfield.addEventListener('input', () => {
+            if (latexEditor) {
+                latexEditor.value = mathfield.value;
+                renderEquationPreview(mathfield.value);
+            }
+        });
+
+        mathfield.addEventListener('focus', () => {
+            console.log("Mathfield Focus");
+        });
+
+        mathfield.addEventListener('blur', () => {
+            console.log("Mathfield Blur");
+        });
+
+        mathfield.addEventListener('click', e => {
+            const path = e.composedPath();
+            const isToggle = path.some(el => el && typeof el.getAttribute === 'function' && el.getAttribute('part') === 'virtual-keyboard-toggle');
+            if (isToggle) {
+                console.log("Keyboard Button Clicked");
+            } else {
+                console.log("Mathfield Clicked");
+            }
+            e.stopPropagation();
+        });
+        
+        setTimeout(() => {
+            mathfield.focus();
+        }, 50);
+    }
+}
+
+function renderEquationPreview(latex) {
+    const previewEl = document.getElementById('equationLivePreview');
+    if (!previewEl) return;
+    if (!latex.trim()) {
+        previewEl.innerHTML = '<span style="color: var(--muted); font-size: 11px;">Equation preview will be shown here</span>';
+        return;
+    }
+    if (window.katex) {
+        try {
+            window.katex.render(latex, previewEl, {
+                throwOnError: false,
+                displayMode: true
+            });
+        } catch (err) {
+            previewEl.textContent = latex;
+        }
+    } else {
+        previewEl.textContent = latex;
+    }
+}
+
+function renderEquationList() {
+    const listContainer = document.getElementById('equationFormulaList');
+    const searchInput = document.getElementById('equationSearchInput');
+    if (!listContainer || !searchInput) return;
+
+    const query = searchInput.value.toLowerCase().trim();
+    
+    let list = [];
+    if (equationActiveCategory === 'recent') {
+        list = equationRecent;
+    } else if (equationActiveCategory === 'favorites') {
+        list = FORMULA_LIBRARY.filter(f => equationFavorites.includes(f.id));
+    } else if (equationActiveCategory === 'all') {
+        list = FORMULA_LIBRARY;
+    } else {
+        list = FORMULA_LIBRARY.filter(f => f.category === equationActiveCategory);
+    }
+
+    if (query) {
+        list = list.filter(f => 
+            f.name.toLowerCase().includes(query) || 
+            (f.description && f.description.toLowerCase().includes(query)) ||
+            f.category.toLowerCase().includes(query) ||
+            f.latex.toLowerCase().includes(query)
+        );
+    }
+
+    listContainer.innerHTML = list.map(f => {
+        const isFav = equationFavorites.includes(f.id);
+        return `
+            <div class="equation-formula-card" data-id="${esc(f.id)}" data-latex="${esc(f.latex)}">
+                <button class="favorite-star-btn ${isFav ? 'active' : ''}" data-id="${esc(f.id)}" title="Favorite">★</button>
+                <div class="equation-formula-name">${esc(f.name)}</div>
+                <div class="equation-formula-render" id="card-render-${esc(f.id)}">${esc(f.latex)}</div>
+            </div>
+        `;
+    }).join('');
+
+    list.forEach(f => {
+        const el = document.getElementById(`card-render-${f.id}`);
+        if (el && window.katex) {
+            try {
+                window.katex.render(f.latex, el, { throwOnError: false });
+            } catch (err) {
+                // fall back to raw text
+            }
+        }
+    });
+
+    listContainer.querySelectorAll('.equation-formula-card').forEach(card => {
+        card.addEventListener('click', e => {
+            if (e.target.classList.contains('favorite-star-btn')) return;
+            e.stopPropagation();
+            const latex = card.dataset.latex;
+            const editor = document.getElementById('equationLatexEditor');
+            if (editor) {
+                editor.value = latex;
+                renderEquationPreview(latex);
+                if (activeMathfield) {
+                    activeMathfield.value = latex;
+                    setTimeout(() => {
+                        activeMathfield.focus();
+                    }, 50);
+                }
+            }
+        });
+    });
+
+    listContainer.querySelectorAll('.favorite-star-btn').forEach(star => {
+        star.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = star.dataset.id;
+            if (equationFavorites.includes(id)) {
+                equationFavorites = equationFavorites.filter(fid => fid !== id);
+                star.classList.remove('active');
+            } else {
+                equationFavorites.push(id);
+                star.classList.add('active');
+            }
+            saveEquationFavorites();
+            if (equationActiveCategory === 'favorites') {
+                renderEquationList();
+            }
+        });
+    });
+}
+
+function initEquationModal() {
+    const modal = document.getElementById('equationModal');
+    if (!modal) return;
+
+    if (window.mathVirtualKeyboard) {
+        const updateKeyboardVisible = () => {
+            modal.classList.toggle('keyboard-visible', !!window.mathVirtualKeyboard.visible);
+        };
+        window.mathVirtualKeyboard.addEventListener('visible-change', () => {
+            console.log("Keyboard visible-change event. visible:", window.mathVirtualKeyboard.visible);
+            if (window.mathVirtualKeyboard.visible) {
+                console.log("Keyboard Visible");
+            } else {
+                console.log("Keyboard Hidden");
+            }
+            updateKeyboardVisible();
+        });
+        window.mathVirtualKeyboard.addEventListener('geometrychange', () => {
+            console.log("Keyboard geometrychange event");
+            updateKeyboardVisible();
+        });
+    }
+    const closeBtn = document.getElementById('closeEquationModalBtn');
+    const cancelBtn = document.getElementById('cancelEquationBtn');
+    const insertBtn = document.getElementById('insertEquationBtn');
+    const searchInput = document.getElementById('equationSearchInput');
+    const latexEditor = document.getElementById('equationLatexEditor');
+    const categoryBtns = modal.querySelectorAll('.category-btn');
+
+    const closeModal = () => {
+        const container = document.getElementById('mathfieldContainer');
+        if (container) {
+            container.innerHTML = '';
+        }
+        activeMathfield = null;
+
+        const editorId = activeInsertEquationEditorId;
+        modal.hidden = true;
+        activeInsertEquationEditorId = null;
+        savedRange = null;
+        savedSelectionStart = null;
+        savedSelectionEnd = null;
+        isEquationModalOpen = false;
+        
+        modal.classList.remove('keyboard-visible');
+        if (window.mathVirtualKeyboard) {
+            if (typeof window.mathVirtualKeyboard.hide === 'function') {
+                window.mathVirtualKeyboard.hide();
+            } else {
+                window.mathVirtualKeyboard.visible = false;
+            }
+        }
+
+        if (editorId) {
+            const saved = editorSelections[editorId];
+            if (saved && saved.element) {
+                saved.element.focus();
+            } else {
+                const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+                if (wrapper) {
+                    const visual = wrapper.querySelector('[data-visual-editor]');
+                    if (visual && !wrapper.classList.contains('show-code')) {
+                        visual.focus();
+                    } else {
+                        const code = wrapper.querySelector('[data-code-editor]');
+                        code?.focus();
+                    }
+                }
+            }
+        }
+    };
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', e => {
+        const isContent = e.target.closest('.equation-modal-content');
+        const isKeyboard = e.target.closest('.ML__keyboard') || e.target.closest('.ml-keyboard');
+        if (e.target === modal && !isContent && !isKeyboard) {
+            closeModal();
+        }
+    });
+
+    categoryBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            categoryBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            equationActiveCategory = btn.dataset.category;
+            renderEquationList();
+        });
+    });
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            renderEquationList();
+        });
+    }
+
+    if (latexEditor) {
+        latexEditor.addEventListener('input', () => {
+            renderEquationPreview(latexEditor.value);
+            if (activeMathfield && activeMathfield.value !== latexEditor.value) {
+                activeMathfield.value = latexEditor.value;
+            }
+        });
+    }
+
+    if (insertBtn) {
+        insertBtn.addEventListener('click', () => {
+            const latex = latexEditor.value.trim();
+            if (!latex) return;
+            
+            let formulaObj;
+            const matched = FORMULA_LIBRARY.find(f => f.latex === latex);
+            if (matched) {
+                formulaObj = { id: matched.id, category: matched.category, name: matched.name, latex: matched.latex };
+            } else {
+                const shortName = latex.length > 25 ? latex.substring(0, 22) + '...' : latex;
+                formulaObj = { id: 'custom_' + Date.now(), category: 'Custom', name: 'Custom: ' + shortName, latex: latex, isCustom: true };
+            }
+            
+            equationRecent = equationRecent.filter(f => f.latex !== latex);
+            equationRecent.unshift(formulaObj);
+            if (equationRecent.length > 20) equationRecent.pop();
+            saveEquationRecent();
+
+            const editorId = activeInsertEquationEditorId;
+            const saved = editorSelections[editorId];
+            closeModal();
+
+            if (saved && saved.element) {
+                const latexText = latex;
+                if (saved.isVisual) {
+                    insertHtmlIntoVisualEditor(saved.element, mathHtml(latexText), saved.range);
+                    updateFieldFromEditor(editorId, markdownFromVisual(saved.element));
+                } else {
+                    const markdownText = `\\(${latexText}\\)`;
+                    insertAtCursor(saved.element, markdownText, true, saved.selectionStart, saved.selectionEnd);
+                    saved.element.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            } else if (editorId) {
+                const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+                if (wrapper) {
+                    const markdown = `\\(${latex}\\)`;
+                    if (wrapper.classList.contains('show-code')) {
+                        const code = wrapper.querySelector('[data-code-editor]');
+                        insertAtCursor(code, markdown, true);
+                        code.dispatchEvent(new Event('input', { bubbles: true }));
+                    } else {
+                        const visual = wrapper.querySelector('[data-visual-editor]');
+                        insertHtmlIntoVisualEditor(visual, mathHtml(latex));
+                        updateFieldFromEditor(editorId, markdownFromVisual(visual));
+                    }
+                }
+            }
+        });
+    }
+}
+
+function insertHtmlIntoVisualEditor(editor, html, targetRange = null) {
     const template = document.createElement('template');
     template.innerHTML = html;
     const fragment = template.content;
     const selection = window.getSelection();
-    if (selection && selection.rangeCount) {
-        const range = selection.getRangeAt(0);
+    
+    let range = null;
+    if (targetRange) {
+        range = targetRange;
+        if (selection) {
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+    } else if (selection && selection.rangeCount > 0) {
+        range = selection.getRangeAt(0);
+    }
+    
+    if (range) {
         range.deleteContents();
         range.insertNode(fragment);
         const spacer = document.createTextNode(' ');
         range.insertNode(spacer);
         range.setStartAfter(spacer);
         range.setEndAfter(spacer);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        if (selection) {
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
     } else {
         editor.append(fragment);
     }
+    
+    editor.focus();
 }
 
-function wrapCodeSelection(textarea, format) {
-    const marker = format === 'bold' ? '**' : '*';
-    const start = textarea.selectionStart || 0;
-    const end = textarea.selectionEnd || start;
+function wrapCodeSelection(textarea, format, selStart = null, selEnd = null) {
+    let marker = '*';
+    if (format === 'bold') marker = '**';
+    else if (format === 'italic') marker = '*';
+    else if (format === 'code') marker = '`';
+    
+    const start = (selStart !== null && selStart !== undefined) ? selStart : (textarea.selectionStart || 0);
+    const end = (selEnd !== null && selEnd !== undefined) ? selEnd : (textarea.selectionEnd || start);
     const selected = textarea.value.slice(start, end) || 'text';
     textarea.value = textarea.value.slice(0, start) + marker + selected + marker + textarea.value.slice(end);
     textarea.setSelectionRange(start + marker.length, start + marker.length + selected.length);
@@ -893,6 +1700,7 @@ function createPaper() {
             instructions: '',
         },
         sections: [{ id: uid('section'), name: 'Section 1', questions: [] }],
+        tags: [],
     };
     state.papers.push(paper);
     state.activePaperId = paper.id;
@@ -907,6 +1715,12 @@ function addSection() {
     paper.sections.push(section);
     state.activeSectionId = section.id;
     render();
+    setTimeout(() => {
+        const input = document.getElementById('sectionNameInput');
+        input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        input?.focus();
+        input?.select();
+    }, 40);
 }
 
 function duplicateSection() {
@@ -1033,13 +1847,13 @@ function insertImageIntoVisualEditor(editor, src) {
     }
 }
 
-function insertAtCursor(textarea, text) {
-    const start = textarea.selectionStart ?? textarea.value.length;
-    const end = textarea.selectionEnd ?? start;
+function insertAtCursor(textarea, text, noNewlines = false, selStart = null, selEnd = null) {
+    const start = (selStart !== null && selStart !== undefined) ? selStart : (textarea.selectionStart ?? textarea.value.length);
+    const end = (selEnd !== null && selEnd !== undefined) ? selEnd : (textarea.selectionEnd ?? start);
     const before = textarea.value.slice(0, start);
     const after = textarea.value.slice(end);
-    const lead = before && !before.endsWith('\n') ? '\n' : '';
-    const trail = after && !after.startsWith('\n') ? '\n' : '';
+    const lead = noNewlines ? '' : (before && !before.endsWith('\n') ? '\n' : '');
+    const trail = noNewlines ? '' : (after && !after.startsWith('\n') ? '\n' : '');
     const insert = `${lead}${text}${trail}`;
     textarea.value = before + insert + after;
     const pos = before.length + insert.length;
@@ -1368,10 +2182,174 @@ function docxParagraph(runs, opts = {}) {
     return `<w:p>${pPr.length ? `<w:pPr>${pPr.join('')}</w:pPr>` : ''}${runs.join('')}</w:p>`;
 }
 
+function tokenizeLatex(str) {
+    const tokens = [];
+    let i = 0;
+    while (i < str.length) {
+        const char = str[i];
+        if (/\s/.test(char)) {
+            i++;
+            continue;
+        }
+        if (char === '\\') {
+            let cmd = '\\';
+            i++;
+            while (i < str.length && /[a-zA-Z]/.test(str[i])) {
+                cmd += str[i];
+                i++;
+            }
+            tokens.push({ type: 'CMD', value: cmd });
+            continue;
+        }
+        if (char === '{' || char === '}' || char === '^' || char === '_' || char === '(' || char === ')' || char === '=' || char === '+' || char === '-' || char === '*' || char === '/' || char === ',') {
+            tokens.push({ type: 'CHAR', value: char });
+            i++;
+            continue;
+        }
+        let val = '';
+        while (i < str.length && !/[\s\\{}^_()=+\-*\/,]/.test(str[i])) {
+            val += str[i];
+            i++;
+        }
+        if (val) {
+            tokens.push({ type: 'TEXT', value: val });
+        }
+    }
+    return tokens;
+}
+
+function parseLatex(tokens) {
+    let index = 0;
+    function peek() { return tokens[index]; }
+    function next() { return tokens[index++]; }
+
+    function parseGroup() {
+        const token = peek();
+        if (token && token.type === 'CHAR' && token.value === '{') {
+            next();
+            const nodes = parseExpression('}');
+            if (peek() && peek().value === '}') next();
+            return nodes;
+        }
+        const single = parseItem();
+        return single ? [single] : [];
+    }
+
+    function parseItem() {
+        const token = next();
+        if (!token) return null;
+        if (token.type === 'CMD') {
+            if (token.value === '\\frac') {
+                const num = parseGroup();
+                const den = parseGroup();
+                return { type: 'frac', num, den };
+            }
+            if (token.value === '\\sqrt') {
+                const expr = parseGroup();
+                return { type: 'sqrt', expr };
+            }
+            if (token.value === '\\sum') {
+                return { type: 'sum', sub: [], sup: [] };
+            }
+            if (token.value === '\\int') {
+                return { type: 'int', sub: [], sup: [] };
+            }
+            return { type: 'cmd', value: token.value };
+        }
+        return { type: 'text', value: token.value };
+    }
+
+    function parseExpression(endChar) {
+        const nodes = [];
+        while (index < tokens.length) {
+            const token = peek();
+            if (token && token.type === 'CHAR' && token.value === endChar) break;
+            if (token && token.type === 'CHAR' && (token.value === '^' || token.value === '_')) {
+                const lastNode = nodes.pop();
+                const isSup = token.value === '^';
+                next();
+                const subexpr = parseGroup();
+                if (lastNode && (lastNode.type === 'sum' || lastNode.type === 'int')) {
+                    if (isSup) lastNode.sup = subexpr;
+                    else lastNode.sub = subexpr;
+                    nodes.push(lastNode);
+                } else if (lastNode && lastNode.type === 'sup' && !isSup) {
+                    nodes.push({ type: 'subsup', base: lastNode.base, sub: subexpr, sup: lastNode.sup });
+                } else if (lastNode && lastNode.type === 'sub' && isSup) {
+                    nodes.push({ type: 'subsup', base: lastNode.base, sub: lastNode.sub, sup: subexpr });
+                } else {
+                    const base = lastNode ? [lastNode] : [];
+                    nodes.push({ type: isSup ? 'sup' : 'sub', base, [isSup ? 'sup' : 'sub']: subexpr });
+                }
+                continue;
+            }
+            const node = parseItem();
+            if (node) nodes.push(node);
+        }
+        return nodes;
+    }
+    return parseExpression();
+}
+
+function generateOMML(nodes) {
+    function mapNode(node) {
+        if (!node) return '';
+        if (node.type === 'text') {
+            return `<m:r><m:t>${xmlEscape(node.value)}</m:t></m:r>`;
+        }
+        if (node.type === 'cmd') {
+            const cmdMap = {
+                '\\pm': '±', '\\times': '×', '\\div': '÷', '\\alpha': 'α',
+                '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ', '\\theta': 'θ',
+                '\\lambda': 'λ', '\\pi': 'π', '\\sigma': 'σ', '\\phi': 'φ',
+                '\\omega': 'ω', '\\Delta': 'Δ', '\\infty': '∞', '\\le': '≤',
+                '\\ge': '≥', '\\neq': '≠', '\\approx': '≈'
+            };
+            const val = cmdMap[node.value] || node.value;
+            return `<m:r><m:t>${xmlEscape(val)}</m:t></m:r>`;
+        }
+        if (node.type === 'frac') {
+            return `<m:f><m:num>${mapNodes(node.num)}</m:num><m:den>${mapNodes(node.den)}</m:den></m:f>`;
+        }
+        if (node.type === 'sqrt') {
+            return `<m:rad><m:radPr><m:degHide w:val="1"/></m:radPr><m:deg/><m:e>${mapNodes(node.expr)}</m:e></m:rad>`;
+        }
+        if (node.type === 'sup') {
+            return `<m:sSup><m:e>${mapNodes(node.base)}</m:e><m:sup>${mapNodes(node.sup)}</m:sup></m:sSup>`;
+        }
+        if (node.type === 'sub') {
+            return `<m:sSub><m:e>${mapNodes(node.base)}</m:e><m:sub>${mapNodes(node.sub)}</m:sub></m:sSub>`;
+        }
+        if (node.type === 'subsup') {
+            return `<m:sSubSup><m:e>${mapNodes(node.base)}</m:e><m:sub>${mapNodes(node.sub)}</m:sub><m:sup>${mapNodes(node.sup)}</m:sup></m:sSubSup>`;
+        }
+        if (node.type === 'sum') {
+            return `<m:nary><m:naryPr><m:chr w:val="∑"/><m:limLoc w:val="undOvr"/></m:naryPr><m:sub>${mapNodes(node.sub)}</m:sub><m:sup>${mapNodes(node.sup)}</m:sup><m:e/></m:nary>`;
+        }
+        if (node.type === 'int') {
+            return `<m:nary><m:naryPr><m:chr w:val="∫"/><m:limLoc w:val="subSup"/></m:naryPr><m:sub>${mapNodes(node.sub)}</m:sub><m:sup>${mapNodes(node.sup)}</m:sup><m:e/></m:nary>`;
+        }
+        return '';
+    }
+    function mapNodes(nodeList) {
+        if (!nodeList || !nodeList.length) return '';
+        return nodeList.map(mapNode).join('');
+    }
+    return mapNodes(nodes);
+}
+
 function docxMath(latex) {
     const trimmed = String(latex || '').trim();
-    const frac = trimmed.match(/^\\frac\{([^{}]+)\}\{([^{}]+)\}$/);
-    if (frac) return `<m:oMath><m:f><m:num><m:r><m:t>${xmlEscape(frac[1])}</m:t></m:r></m:num><m:den><m:r><m:t>${xmlEscape(frac[2])}</m:t></m:r></m:den></m:f></m:oMath>`;
+    try {
+        const tokens = tokenizeLatex(trimmed);
+        const ast = parseLatex(tokens);
+        const omml = generateOMML(ast);
+        if (omml) {
+            return `<m:oMath>${omml}</m:oMath>`;
+        }
+    } catch (err) {
+        // Fallback on error
+    }
     return `<m:oMath><m:r><m:t>${xmlEscape(cleanLatex(trimmed))}</m:t></m:r></m:oMath>`;
 }
 

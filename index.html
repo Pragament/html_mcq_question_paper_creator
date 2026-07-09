@@ -272,6 +272,21 @@
                 <span>Question Papers</span>
                 <button class="icon-btn" id="newPaperBtn" title="New paper">+</button>
             </div>
+            <div class="sidebar-filter-wrapper">
+                <input type="text" id="paperSearchInput" placeholder="Search papers..." autocomplete="off" />
+                <div class="sidebar-filter-tags-container">
+                    <div class="sidebar-filter-tags-header" style="display: flex; align-items: center; justify-content: space-between;">
+                        <div class="sidebar-filter-tags-title">Filter by Tags</div>
+                        <div class="tag-scroll-buttons" style="display: flex; gap: 4px;">
+                            <button class="tag-scroll-btn" id="tagScrollUpBtn" title="Scroll Up">▲</button>
+                            <button class="tag-scroll-btn" id="tagScrollDownBtn" title="Scroll Down">▼</button>
+                        </div>
+                    </div>
+                    <div class="tag-filter-container" id="tagFilterContainer">
+                        <div class="sidebar-filter-tags-list" id="sidebarFilterTagsList"></div>
+                    </div>
+                </div>
+            </div>
             <div class="paper-list" id="paperList"></div>
         </aside>
 
@@ -284,9 +299,61 @@
         <aside class="teacher-panel" id="teacherPanel"></aside>
     </div>
 
+    <!-- Equation Library Modal Dialog -->
+    <div class="modal-overlay" id="equationModal" hidden>
+        <div class="equation-modal-content">
+            <div class="equation-modal-header">
+                <h2>Insert Equation</h2>
+                <button type="button" class="modal-close-btn" id="closeEquationModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="equation-modal-body">
+                <div class="equation-search-row">
+                    <input type="text" id="equationSearchInput" placeholder="Search formula by name, category, or LaTeX..." autocomplete="off" />
+                </div>
+                
+                <div class="equation-layout-grid">
+                    <div class="equation-categories-sidebar">
+                        <button class="category-btn active" data-category="all">All Formulas</button>
+                        <button class="category-btn" data-category="Mathematics">Mathematics</button>
+                        <button class="category-btn" data-category="Physics">Physics</button>
+                        <button class="category-btn" data-category="Chemistry">Chemistry</button>
+                        <button class="category-btn" data-category="recent">Recently Used</button>
+                        <button class="category-btn" data-category="favorites">Favorites</button>
+                    </div>
+                    
+                    <div class="equation-formula-list-container">
+                        <div class="equation-formula-list" id="equationFormulaList"></div>
+                    </div>
+                </div>
+
+                <!-- Mathfield Editor Container -->
+                <div class="mathfield-editor-container" id="visualFormulaEditorContainer">
+                    <label class="equation-label">Mathfield Editor (Visual)</label>
+                    <div id="mathfieldContainer"></div>
+                </div>
+                
+                <div class="equation-editor-preview-container">
+                    <div class="equation-editor-column">
+                        <label class="equation-label">LaTeX Editor</label>
+                        <textarea id="equationLatexEditor" placeholder="Type, edit, or paste your LaTeX expression here..."></textarea>
+                    </div>
+                    <div class="equation-preview-column">
+                        <label class="equation-label">Live Preview</label>
+                        <div class="equation-live-preview" id="equationLivePreview"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="equation-modal-footer">
+                <button type="button" class="btn secondary" id="cancelEquationBtn">Cancel</button>
+                <button type="button" class="btn primary" id="insertEquationBtn">Insert Equation</button>
+            </div>
+        </div>
+    </div>
+
     <div id="printPaperContainer" class="print-paper-container"></div>
     <input type="file" id="fileInput" accept="application/json,.json" hidden />
     <div class="toast" id="toast"></div>
+    <script src="https://unpkg.com/mathlive"></script>
     <script src="script.js?v=1.1"></script>
 </body>
 </html>
