@@ -7,7 +7,248 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=1.1" />
+    <style media="print">
+        @page {
+            size: A4;
+            margin: 20mm;
+        }
+
+        body {
+            height: auto !important;
+            overflow: visible !important;
+            background: #fff !important;
+            color: #000 !important;
+            font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.5;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* 1. Hide formatting toolbar (Bold, Italic, Sigma, Code) and screen UI */
+        .editor-toolbar,
+        .topbar,
+        .paper-sidebar,
+        .teacher-panel,
+        .section-tabs,
+        .question-tools,
+        .layout-row,
+        .paste-hint,
+        .workbench-head button,
+        .toast,
+        .bottom-add-container,
+        #fileInput {
+            display: none !important;
+        }
+
+        /* 2. Hide answer selection controls (radio buttons and their neighbor spans) */
+        .correct-radio,
+        .correct-radio + span {
+            display: none !important;
+        }
+
+        /* 3. Remove correct answer highlight styling */
+        .option-card.correct {
+            border-color: var(--line) !important;
+            background: #fff !important;
+            box-shadow: none !important;
+        }
+
+        /* 4. Remove all editor styling (borders, focus rings, outlines, scrollbars) */
+        .app-shell,
+        .workspace,
+        .paper-setup,
+        .question-workbench,
+        .question-card,
+        .option-card {
+            box-shadow: none !important;
+            border: none !important;
+            background: transparent !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        .editor,
+        .visual-editor,
+        .code-editor,
+        .option-card textarea,
+        .field input,
+        .field textarea {
+            border: none !important;
+            outline: none !important;
+            box-shadow: none !important;
+            background: transparent !important;
+            padding: 0 !important;
+            resize: none !important;
+            color: #000 !important;
+        }
+
+        /* Ensure clean page breaks per question card */
+        .question-card,
+        .print-question-card {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            margin-bottom: 24px !important;
+        }
+
+        /* Hide the screen editor app shell completely when printing */
+        .app-shell {
+            display: none !important;
+        }
+
+        /* Show only the dedicated print paper container */
+        .print-paper-container {
+            display: block !important;
+            width: 100% !important;
+            background: #fff !important;
+            color: #000 !important;
+        }
+
+        .print-paper {
+            box-sizing: border-box;
+        }
+
+        /* Header styling resembling a school examination paper */
+        .print-header {
+            border-bottom: 3px double #000;
+            padding-bottom: 12px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .print-paper-title {
+            font-size: 18pt;
+            font-weight: 700;
+            margin: 0 0 6px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .print-test-name {
+            font-size: 13pt;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            text-transform: uppercase;
+        }
+
+        .print-meta-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            row-gap: 6px;
+            column-gap: 32px;
+            text-align: left;
+            margin-bottom: 12px;
+            font-size: 11pt;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .print-instructions {
+            border-top: 1px solid #000;
+            padding-top: 10px;
+            margin-top: 12px;
+            text-align: left;
+            font-size: 10pt;
+            line-height: 1.4;
+        }
+
+        .print-instructions-text {
+            white-space: pre-wrap;
+            margin-top: 6px;
+        }
+
+        /* Sections styling */
+        .print-section {
+            margin-top: 28px;
+        }
+
+        .print-section-title {
+            font-size: 12pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 1px solid #000;
+            padding-bottom: 4px;
+            margin-bottom: 18px;
+            letter-spacing: 0.5px;
+        }
+
+        /* Questions and Cards styling */
+        .print-question-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            font-size: 11pt;
+            margin-bottom: 10px;
+        }
+
+        .print-q-number {
+            font-weight: bold;
+            flex-shrink: 0;
+            min-width: 22px;
+        }
+
+        .print-q-text {
+            flex-grow: 1;
+            font-weight: 500;
+        }
+
+        /* Options grid styling matching normal layout */
+        .print-options-grid {
+            display: grid;
+            gap: 12px;
+            padding-left: 24px;
+            font-size: 11pt;
+            margin-bottom: 12px;
+        }
+
+        /* Column layouts */
+        .print-options-grid.print-row {
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        .print-options-grid.print-grid2 {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .print-options-grid.print-column {
+            grid-template-columns: 1fr;
+        }
+
+        .print-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .print-option-label {
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .print-option-text {
+            flex-grow: 1;
+        }
+
+        /* Make sure Math Equations are sized properly */
+        .math-token {
+            display: inline-block;
+            vertical-align: baseline;
+            padding: 0 1px;
+        }
+
+        /* Print-friendly image rendering */
+        .editor-image {
+            max-width: 150px;
+            max-height: 100px;
+            border: none;
+            background: transparent;
+            margin: 4px;
+            display: inline-block;
+            vertical-align: middle;
+        }
+    </style>
 </head>
 <body>
     <header class="topbar">
@@ -43,8 +284,9 @@
         <aside class="teacher-panel" id="teacherPanel"></aside>
     </div>
 
+    <div id="printPaperContainer" class="print-paper-container"></div>
     <input type="file" id="fileInput" accept="application/json,.json" hidden />
     <div class="toast" id="toast"></div>
-    <script src="script.js"></script>
+    <script src="script.js?v=1.1"></script>
 </body>
 </html>

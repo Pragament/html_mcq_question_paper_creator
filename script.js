@@ -1,4 +1,9 @@
 const STORAGE_KEY = 'school_mcq_paper_studio_v1';
+const UI_CONFIG = {
+    showReuse: false,
+    showCopy: false,
+    showDuplicate: false
+};
 const LABELS = ['A', 'B', 'C', 'D'];
 const LAYOUTS = [
     { id: 'row', label: '1x4' },
@@ -153,6 +158,7 @@ function render() {
     renderSectionTabs();
     renderWorkbench();
     renderTeacherPanel();
+    renderPrintPaper();
     save();
     renderMathSoon();
 }
@@ -240,9 +246,9 @@ function renderWorkbench() {
                 <input id="sectionNameInput" value="${esc(section.name)}" />
             </div>
             <div class="question-tools">
-                <button class="small-btn success" id="addQuestionBtn">+ Question</button>
-                <button class="small-btn" id="reuseQuestionBtn">Reuse</button>
-                <button class="small-btn" id="duplicateSectionBtn">Duplicate</button>
+                <button class="small-btn success" id="addQuestionBtn" style="display: none;">+ Question</button>
+                <button class="small-btn" id="reuseQuestionBtn"${UI_CONFIG.showReuse ? '' : ' style="display: none;"'}>Reuse</button>
+                <button class="small-btn" id="duplicateSectionBtn"${UI_CONFIG.showDuplicate ? '' : ' style="display: none;"'}>Duplicate</button>
                 <button class="small-btn danger" id="deleteSectionBtn">Delete</button>
             </div>
         </div>
@@ -251,15 +257,22 @@ function renderWorkbench() {
             <div class="reuse-results" id="reuseResults"></div>
         </div>
         ${section.questions.length ? section.questions.map((question, index) => questionCard(question, index)).join('') : emptyQuestions()}
+        ${section.questions.length ? `
+        <div class="bottom-add-container">
+            <button class="btn success" id="bottomAddQuestionBtn">+ Add Question</button>
+        </div>
+        ` : ''}
     `;
 
     document.getElementById('sectionNameInput').addEventListener('input', e => {
         section.name = e.target.value || 'Untitled Section';
         renderSectionTabs();
         renderTeacherPanel();
+        renderPrintPaper();
         save();
     });
     document.getElementById('addQuestionBtn').addEventListener('click', () => addQuestion(section.id));
+    document.getElementById('bottomAddQuestionBtn').addEventListener('click', () => addQuestion(section.id));
     document.getElementById('reuseQuestionBtn').addEventListener('click', toggleReusePanel);
     document.getElementById('reuseSearchInput').addEventListener('input', renderReuseResults);
     document.getElementById('duplicateSectionBtn').addEventListener('click', duplicateSection);
@@ -321,7 +334,7 @@ function questionCard(question, index) {
                 <div class="question-tools">
                     <button class="small-btn" data-question-action="move-up" data-qid="${question.id}">↑</button>
                     <button class="small-btn" data-question-action="move-down" data-qid="${question.id}">↓</button>
-                    <button class="small-btn" data-question-action="duplicate" data-qid="${question.id}">Copy</button>
+                    <button class="small-btn" data-question-action="duplicate" data-qid="${question.id}"${UI_CONFIG.showCopy ? '' : ' style="display: none;"'}>Copy</button>
                     <button class="small-btn danger" data-question-action="delete" data-qid="${question.id}">Delete</button>
                 </div>
             </div>
@@ -646,7 +659,12 @@ function applyQuestionSuggestion(qid, suggestion) {
 }
 
 function emptyQuestions() {
-    return `<div class="empty-state"><strong>No questions yet</strong><button class="btn primary" onclick="addQuestion('${state.activeSectionId}')">Add first question</button></div>`;
+    return `
+        <div class="empty-state">
+            <strong>No questions yet</strong>
+            <button class="btn success" id="bottomAddQuestionBtn" style="margin-top: 15px;">+ Add Question</button>
+        </div>
+    `;
 }
 
 function imageStrip(markdown, qid, field) {
@@ -782,6 +800,75 @@ function renderTeacherPanel() {
     `;
 }
 
+function renderPrintPaper() {
+    const paper = getActivePaper();
+    const container = document.getElementById('printPaperContainer');
+    if (!container) return;
+    if (!paper) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const sectionsHtml = paper.sections.map(section => {
+        if (!section.questions.length) return '';
+        const questionsHtml = section.questions.map((question, index) => {
+            const optionsHtml = question.options.map((option, optionIndex) => {
+                return `
+                    <div class="print-option">
+                        <span class="print-option-label">${LABELS[optionIndex]}.</span>
+                        <div class="print-option-text">${markdownToVisualHtml(option.text)}</div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="print-question-card">
+                    <div class="print-question-header">
+                        <span class="print-q-number">${index + 1}.</span>
+                        <div class="print-q-text">${markdownToVisualHtml(question.text)}</div>
+                    </div>
+                    <div class="print-options-grid print-${question.layout || 'row'}">
+                        ${optionsHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="print-section">
+                <h3 class="print-section-title">${esc(section.name)}</h3>
+                <div class="print-section-questions">
+                    ${questionsHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="print-paper">
+            <div class="print-header">
+                <h1 class="print-paper-title">${esc(paper.title || 'Question Paper')}</h1>
+                ${paper.meta.testName ? `<h2 class="print-test-name">${esc(paper.meta.testName)}</h2>` : ''}
+                <div class="print-meta-grid">
+                    <div><strong>Subject:</strong> ${esc(paper.meta.subject || '')}</div>
+                    <div><strong>Class:</strong> ${esc(paper.meta.className || '')}</div>
+                    <div><strong>Time:</strong> ${esc(paper.meta.duration || '')}</div>
+                    <div><strong>Max Marks:</strong> ${esc(paper.meta.marks || '')}</div>
+                </div>
+                ${paper.meta.instructions ? `
+                    <div class="print-instructions">
+                        <strong>Instructions:</strong>
+                        <div class="print-instructions-text">${esc(paper.meta.instructions)}</div>
+                    </div>
+                ` : ''}
+            </div>
+            <div class="print-body">
+                ${sectionsHtml}
+            </div>
+        </div>
+    `;
+}
+
 function updateMeta(key, value) {
     const paper = getActivePaper();
     if (!paper) return;
@@ -789,6 +876,7 @@ function updateMeta(key, value) {
     else paper.meta[key] = value;
     renderPaperList();
     renderTeacherPanel();
+    renderPrintPaper();
     save();
 }
 
@@ -855,6 +943,7 @@ function addQuestion(sectionId) {
     setTimeout(() => {
         const cards = document.querySelectorAll('.question-card');
         const last = cards[cards.length - 1];
+        last?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         last?.querySelector('[data-visual-editor]')?.focus();
     }, 40);
 }
@@ -1156,31 +1245,62 @@ function buildDocumentXml(paper, media) {
         section.questions.forEach(question => {
             questionNumber += 1;
             body += docxParagraph([docxTextRun(`${questionNumber}) `, { bold: true }), ...docxInlineFromMarkdown(question.text || '', media)], { after: 50 });
-            body += docxOptionsTable(question, media);
+            body += docxOptionsParagraphs(question, media);
         });
     });
-    body += docxParagraph([docxTextRun('Answer Key', { bold: true, size: 24 })], { before: 180, after: 80 });
-    body += docxParagraph([docxTextRun(allQuestions(paper).map((q, i) => `${i + 1}. ${LABELS[q.correctIndex] || 'A'}`).join('    '))], { after: 80 });
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${DOCX_NS.w}" xmlns:r="${DOCX_NS.r}" xmlns:wp="${DOCX_NS.wp}" xmlns:a="${DOCX_NS.a}" xmlns:pic="${DOCX_NS.pic}" xmlns:m="${DOCX_NS.m}">
 <w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="360" w:footer="360" w:gutter="0"/></w:sectPr></w:body>
 </w:document>`;
 }
 
-function docxOptionsTable(question, media) {
-    const rows = question.layout === 'row'
-        ? [[0, 1, 2, 3]]
-        : question.layout === 'grid2'
-            ? [[0, 1], [2, 3]]
-            : [[0], [1], [2], [3]];
-    const colCount = rows[0].length;
-    const colWidth = Math.floor(9360 / colCount);
-    const grid = Array.from({ length: colCount }, () => `<w:gridCol w:w="${colWidth}"/>`).join('');
-    const body = rows.map(row => `<w:tr>${row.map(index => {
-        const runs = [docxTextRun(`${LABELS[index]}) `, { bold: true }), ...docxInlineFromMarkdown(question.options[index]?.text || '', media)];
-        return `<w:tc><w:tcPr><w:tcW w:w="${colWidth}" w:type="dxa"/></w:tcPr>${docxParagraph(runs, { after: 20 })}</w:tc>`;
-    }).join('')}</w:tr>`).join('');
-    return `<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${body}</w:tbl>${docxParagraph([], { after: 80 })}`;
+function docxOptionsParagraphs(question, media) {
+    if (question.layout === 'column') {
+        let html = '';
+        for (let i = 0; i < 4; i++) {
+            const runs = [docxTextRun(`${LABELS[i]}) `, { bold: true }), ...docxInlineFromMarkdown(question.options[i]?.text || '', media)];
+            html += docxParagraph(runs, { after: 20 });
+        }
+        return html + docxParagraph([], { after: 60 });
+    }
+
+    if (question.layout === 'grid2') {
+        const tabsXml = '<w:pPr><w:tabs><w:tab w:val="left" w:pos="4680"/></w:tabs></w:pPr>';
+        const runs1 = [
+            docxTextRun(`${LABELS[0]}) `, { bold: true }),
+            ...docxInlineFromMarkdown(question.options[0]?.text || '', media),
+            '<w:r><w:tab/></w:r>',
+            docxTextRun(`${LABELS[1]}) `, { bold: true }),
+            ...docxInlineFromMarkdown(question.options[1]?.text || '', media)
+        ];
+        const runs2 = [
+            docxTextRun(`${LABELS[2]}) `, { bold: true }),
+            ...docxInlineFromMarkdown(question.options[2]?.text || '', media),
+            '<w:r><w:tab/></w:r>',
+            docxTextRun(`${LABELS[3]}) `, { bold: true }),
+            ...docxInlineFromMarkdown(question.options[3]?.text || '', media)
+        ];
+        const p1 = `<w:p>${tabsXml}${runs1.join('')}</w:p>`;
+        const p2 = `<w:p>${tabsXml}${runs2.join('')}</w:p>`;
+        return p1 + p2 + docxParagraph([], { after: 60 });
+    }
+
+    // Default to 'row' (1x4)
+    const tabsXml = '<w:pPr><w:tabs><w:tab w:val="left" w:pos="2340"/><w:tab w:val="left" w:pos="4680"/><w:tab w:val="left" w:pos="7020"/></w:tabs></w:pPr>';
+    const runs = [
+        docxTextRun(`${LABELS[0]}) `, { bold: true }),
+        ...docxInlineFromMarkdown(question.options[0]?.text || '', media),
+        '<w:r><w:tab/></w:r>',
+        docxTextRun(`${LABELS[1]}) `, { bold: true }),
+        ...docxInlineFromMarkdown(question.options[1]?.text || '', media),
+        '<w:r><w:tab/></w:r>',
+        docxTextRun(`${LABELS[2]}) `, { bold: true }),
+        ...docxInlineFromMarkdown(question.options[2]?.text || '', media),
+        '<w:r><w:tab/></w:r>',
+        docxTextRun(`${LABELS[3]}) `, { bold: true }),
+        ...docxInlineFromMarkdown(question.options[3]?.text || '', media)
+    ];
+    return `<w:p>${tabsXml}${runs.join('')}</w:p>` + docxParagraph([], { after: 60 });
 }
 
 function docxInlineFromMarkdown(markdown, media) {
