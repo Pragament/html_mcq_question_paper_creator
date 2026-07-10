@@ -1498,6 +1498,32 @@ div[class*="ML__keyboard"] {
     }
 }
 
+.layout-radio-group {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    height: 36px;
+}
+
+.radio-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 500;
+    user-select: none;
+    color: var(--text);
+}
+
+.radio-inline input[type="radio"] {
+    margin: 0;
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+}
+
 .print-paper-container {
     display: none;
 }

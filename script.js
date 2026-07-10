@@ -155,12 +155,22 @@ function normalize() {
     state.papers.forEach(paper => {
         paper.meta ||= {};
         paper.tags ||= [];
+        paper.layout = ['row', 'grid2', 'column'].includes(paper.layout) ? paper.layout : 'row';
         paper.sections ||= [];
         paper.sections.forEach(section => {
+            section.layout = ['row', 'grid2', 'column'].includes(section.layout) ? section.layout : (paper.layout || 'row');
             section.questions ||= [];
             section.questions.forEach(question => {
                 question.options ||= [];
-                question.layout = ['row', 'grid2', 'column'].includes(question.layout) ? question.layout : 'row';
+                if (question.layout) {
+                    question.layout = ['row', 'grid2', 'column'].includes(question.layout) ? question.layout : 'row';
+                    if (question.customLayout === undefined) {
+                        question.customLayout = true;
+                    }
+                } else {
+                    question.layout = section.layout || paper.layout || 'row';
+                    question.customLayout = false;
+                }
                 while (question.options.length < 4) {
                     question.options.push(newOption(question.options.length));
                 }
@@ -181,6 +191,7 @@ function samplePaper() {
     const math = {
         id: uid('section'),
         name: 'Mathematics',
+        layout: 'row',
         questions: [
             newQuestion('Two circles having same _____ are called concentric circles', ['Center', 'radius', 'arc', 'segment'], 0),
             newQuestion('Degree measure of a circle is _____ degrees', ['90', '180', '270', '360'], 3),
@@ -190,6 +201,7 @@ function samplePaper() {
     const paper = {
         id: uid('paper'),
         title: 'Sample Paper - IX IIT',
+        layout: 'row',
         meta: {
             className: 'IX',
             subject: 'MPCM',
@@ -351,6 +363,15 @@ function renderPaperSetup() {
                 </div>
             </div>
             
+            <div class="field default-layout-field" style="grid-column: 1 / -1;">
+                <label>Default Option Layout</label>
+                <div class="layout-radio-group">
+                    <label class="radio-inline"><input type="radio" name="defaultOptionLayout" value="row" ${paper.layout === 'row' ? 'checked' : ''} /> 1&times;4</label>
+                    <label class="radio-inline"><input type="radio" name="defaultOptionLayout" value="grid2" ${paper.layout === 'grid2' ? 'checked' : ''} /> 2&times;2</label>
+                    <label class="radio-inline"><input type="radio" name="defaultOptionLayout" value="column" ${paper.layout === 'column' ? 'checked' : ''} /> 4&times;1</label>
+                </div>
+            </div>
+            
             <div class="field instructions-field">
                 <label>Instructions</label>
                 <textarea data-meta="instructions" placeholder="Instructions shown on the paper">${esc(paper.meta.instructions)}</textarea>
@@ -359,6 +380,24 @@ function renderPaperSetup() {
     `;
     els.paperSetup.querySelectorAll('[data-meta]').forEach(input => {
         input.addEventListener('input', () => updateMeta(input.dataset.meta, input.value));
+    });
+
+    els.paperSetup.querySelectorAll('input[name="defaultOptionLayout"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const newLayout = radio.value;
+            paper.layout = newLayout;
+            
+            paper.sections.forEach(section => {
+                section.layout = newLayout;
+                section.questions.forEach(question => {
+                    if (!question.customLayout) {
+                        question.layout = newLayout;
+                    }
+                });
+            });
+            
+            render();
+        });
     });
 
     const container = document.getElementById('tagsInputContainer');
@@ -575,8 +614,16 @@ function renderWorkbench() {
 
     els.workbench.innerHTML = `
         <div class="workbench-head">
-            <div class="workbench-title">
-                <input id="sectionNameInput" value="${esc(section.name)}" />
+            <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; flex-grow: 1;">
+                <div class="workbench-title" style="flex-shrink: 0;">
+                    <input id="sectionNameInput" value="${esc(section.name)}" />
+                </div>
+                <div class="section-layout-control" style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--muted); margin-right: 4px;">Option Layout</span>
+                    <label class="radio-inline"><input type="radio" name="sectionOptionLayout" value="row" ${section.layout === 'row' ? 'checked' : ''} /> 1&times;4</label>
+                    <label class="radio-inline"><input type="radio" name="sectionOptionLayout" value="grid2" ${section.layout === 'grid2' ? 'checked' : ''} /> 2&times;2</label>
+                    <label class="radio-inline"><input type="radio" name="sectionOptionLayout" value="column" ${section.layout === 'column' ? 'checked' : ''} /> 4&times;1</label>
+                </div>
             </div>
             <div class="question-tools">
                 <button class="small-btn success" id="addQuestionBtn" style="display: none;">+ Question</button>
@@ -626,7 +673,24 @@ function renderWorkbench() {
 
     els.workbench.querySelectorAll('[data-layout]').forEach(btn => {
         btn.addEventListener('click', () => {
-            findQuestion(btn.dataset.qid).layout = btn.dataset.layout;
+            const question = findQuestion(btn.dataset.qid);
+            question.layout = btn.dataset.layout;
+            question.customLayout = true;
+            render();
+        });
+    });
+
+    els.workbench.querySelectorAll('input[name="sectionOptionLayout"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const newLayout = radio.value;
+            section.layout = newLayout;
+            
+            section.questions.forEach(question => {
+                if (!question.customLayout) {
+                    question.layout = newLayout;
+                }
+            });
+            
             render();
         });
     });
@@ -1019,22 +1083,7 @@ function insertEquation(editorId) {
             }
         });
 
-        mathfield.addEventListener('focus', () => {
-            console.log("Mathfield Focus");
-        });
-
-        mathfield.addEventListener('blur', () => {
-            console.log("Mathfield Blur");
-        });
-
         mathfield.addEventListener('click', e => {
-            const path = e.composedPath();
-            const isToggle = path.some(el => el && typeof el.getAttribute === 'function' && el.getAttribute('part') === 'virtual-keyboard-toggle');
-            if (isToggle) {
-                console.log("Keyboard Button Clicked");
-            } else {
-                console.log("Mathfield Clicked");
-            }
             e.stopPropagation();
         });
         
@@ -1160,19 +1209,8 @@ function initEquationModal() {
         const updateKeyboardVisible = () => {
             modal.classList.toggle('keyboard-visible', !!window.mathVirtualKeyboard.visible);
         };
-        window.mathVirtualKeyboard.addEventListener('visible-change', () => {
-            console.log("Keyboard visible-change event. visible:", window.mathVirtualKeyboard.visible);
-            if (window.mathVirtualKeyboard.visible) {
-                console.log("Keyboard Visible");
-            } else {
-                console.log("Keyboard Hidden");
-            }
-            updateKeyboardVisible();
-        });
-        window.mathVirtualKeyboard.addEventListener('geometrychange', () => {
-            console.log("Keyboard geometrychange event");
-            updateKeyboardVisible();
-        });
+        window.mathVirtualKeyboard.addEventListener('visible-change', updateKeyboardVisible);
+        window.mathVirtualKeyboard.addEventListener('geometrychange', updateKeyboardVisible);
     }
     const closeBtn = document.getElementById('closeEquationModalBtn');
     const cancelBtn = document.getElementById('cancelEquationBtn');
@@ -1225,12 +1263,19 @@ function initEquationModal() {
     };
     if (closeBtn) closeBtn.addEventListener('click', closeModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+
+    let mousedownTarget = null;
+    modal.addEventListener('mousedown', e => {
+        mousedownTarget = e.target;
+    });
+
     modal.addEventListener('click', e => {
         const isContent = e.target.closest('.equation-modal-content');
         const isKeyboard = e.target.closest('.ML__keyboard') || e.target.closest('.ml-keyboard');
-        if (e.target === modal && !isContent && !isKeyboard) {
+        if (e.target === modal && mousedownTarget === modal && !isContent && !isKeyboard) {
             closeModal();
         }
+        mousedownTarget = null;
     });
 
     categoryBtns.forEach(btn => {
@@ -1711,7 +1756,12 @@ function createPaper() {
 
 function addSection() {
     const paper = getActivePaper();
-    const section = { id: uid('section'), name: `Section ${paper.sections.length + 1}`, questions: [] };
+    const section = { 
+        id: uid('section'), 
+        name: `Section ${paper.sections.length + 1}`, 
+        layout: paper.layout || 'row',
+        questions: [] 
+    };
     paper.sections.push(section);
     state.activeSectionId = section.id;
     render();
@@ -1752,7 +1802,10 @@ function deleteSection() {
 
 function addQuestion(sectionId) {
     const section = getActivePaper().sections.find(s => s.id === sectionId);
-    section.questions.push(newQuestion('', ['', '', '', ''], 0));
+    const q = newQuestion('', ['', '', '', ''], 0);
+    q.layout = section.layout || 'row';
+    q.customLayout = false;
+    section.questions.push(q);
     render();
     setTimeout(() => {
         const cards = document.querySelectorAll('.question-card');
