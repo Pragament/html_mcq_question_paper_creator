@@ -162,15 +162,7 @@ function normalize() {
             section.questions ||= [];
             section.questions.forEach(question => {
                 question.options ||= [];
-                if (question.layout) {
-                    question.layout = ['row', 'grid2', 'column'].includes(question.layout) ? question.layout : 'row';
-                    if (question.customLayout === undefined) {
-                        question.customLayout = true;
-                    }
-                } else {
-                    question.layout = section.layout || paper.layout || 'row';
-                    question.customLayout = false;
-                }
+                question.layout = ['row', 'grid2', 'column'].includes(question.layout) ? question.layout : (section.layout || paper.layout || 'row');
                 while (question.options.length < 4) {
                     question.options.push(newOption(question.options.length));
                 }
@@ -390,9 +382,7 @@ function renderPaperSetup() {
             paper.sections.forEach(section => {
                 section.layout = newLayout;
                 section.questions.forEach(question => {
-                    if (!question.customLayout) {
-                        question.layout = newLayout;
-                    }
+                    question.layout = newLayout;
                 });
             });
             
@@ -675,7 +665,6 @@ function renderWorkbench() {
         btn.addEventListener('click', () => {
             const question = findQuestion(btn.dataset.qid);
             question.layout = btn.dataset.layout;
-            question.customLayout = true;
             render();
         });
     });
@@ -686,9 +675,7 @@ function renderWorkbench() {
             section.layout = newLayout;
             
             section.questions.forEach(question => {
-                if (!question.customLayout) {
-                    question.layout = newLayout;
-                }
+                question.layout = newLayout;
             });
             
             render();
@@ -1736,6 +1723,7 @@ function createPaper() {
     const paper = {
         id: uid('paper'),
         title: `Question Paper ${state.papers.length + 1}`,
+        layout: 'row',
         meta: {
             className: '',
             subject: '',
@@ -1744,7 +1732,7 @@ function createPaper() {
             marks: '',
             instructions: '',
         },
-        sections: [{ id: uid('section'), name: 'Section 1', questions: [] }],
+        sections: [{ id: uid('section'), name: 'Section 1', layout: 'row', questions: [] }],
         tags: [],
     };
     state.papers.push(paper);
@@ -1804,7 +1792,6 @@ function addQuestion(sectionId) {
     const section = getActivePaper().sections.find(s => s.id === sectionId);
     const q = newQuestion('', ['', '', '', ''], 0);
     q.layout = section.layout || 'row';
-    q.customLayout = false;
     section.questions.push(q);
     render();
     setTimeout(() => {
