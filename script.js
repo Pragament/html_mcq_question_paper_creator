@@ -245,6 +245,7 @@ function render() {
     renderPrintPaper();
     save();
     renderMathSoon();
+    renderMermaidSoon();
 }
 
 function renderPaperList() {
@@ -772,6 +773,7 @@ function richEditor({ id, qid, option = '', field, value, placeholder }) {
                 <button type="button" class="tool-btn" data-format="italic" data-editor-id="${esc(id)}" title="Italic"><i>I</i></button>
                 <button type="button" class="tool-btn" data-insert-equation data-editor-id="${esc(id)}" title="Insert equation">∑</button>
                 <button type="button" class="tool-btn" data-toggle-code data-editor-id="${esc(id)}" title="Show code">Code</button>
+                <button type="button" class="tool-btn" data-insert-diagram data-editor-id="${esc(id)}" title="Insert Mermaid diagram" style="display: none;">📊</button>
             </div>
             <div class="editor visual-editor"
                  contenteditable="true"
@@ -1007,9 +1009,12 @@ function saveEquationRecent() {
     localStorage.setItem('school_mcq_paper_studio_recent_formulas', JSON.stringify(equationRecent));
 }
 
-function insertEquation(editorId) {
+function insertEquation(editorId, targetToken = null) {
+    hideContextMenu();
+    mermaidZoomScale = 1.0;
     activeInsertEquationEditorId = editorId || lastActiveEditorKey;
     isEquationModalOpen = true;
+    activeMermaidTokenElement = targetToken;
     
     const targetKey = activeInsertEquationEditorId;
     const saved = editorSelections[targetKey];
@@ -1026,57 +1031,89 @@ function insertEquation(editorId) {
     const searchInput = document.getElementById('equationSearchInput');
     if (searchInput) searchInput.value = '';
     
-    equationActiveCategory = 'all';
-    const categoryBtns = document.querySelectorAll('#equationModal .category-btn');
-    categoryBtns.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.category === 'all');
-    });
-
+    // Toggle sidebars & panels
     const modal = document.getElementById('equationModal');
     if (modal) {
         modal.hidden = false;
     }
-
+    
     const latexEditor = document.getElementById('equationLatexEditor');
     if (latexEditor) {
         latexEditor.value = '';
     }
     
+    const codeEditor = document.getElementById('mermaidCodeEditor');
+    if (codeEditor) {
+        codeEditor.value = '';
+    }
+    
+    if (targetToken && targetToken.classList.contains('mermaid-token')) {
+        equationActiveCategory = 'Mermaid';
+        const base64Code = targetToken.dataset.mermaid;
+        try {
+            const code = decodeURIComponent(escape(atob(base64Code)));
+            if (codeEditor) codeEditor.value = code;
+        } catch (err) {
+            if (codeEditor) codeEditor.value = '';
+        }
+    } else {
+        equationActiveCategory = 'all';
+    }
+    
+    const categoryBtns = document.querySelectorAll('#equationModal .category-btn');
+    categoryBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.category === equationActiveCategory);
+    });
+    
+    // Toggle Mermaid vs Math views
+    toggleEditorViewForCategory(equationActiveCategory);
+    
     renderEquationPreview('');
     renderEquationList();
     
-    const container = document.getElementById('mathfieldContainer');
-    if (container) {
-        container.innerHTML = '';
-        const mathfield = document.createElement('math-field');
-        mathfield.id = 'equationMathfield';
-        mathfield.setAttribute('virtual-keyboard-mode', 'auto');
-        mathfield.style.width = '100%';
-        mathfield.style.minHeight = '70px';
-        mathfield.style.fontSize = '16px';
-        mathfield.style.padding = '8px';
-        mathfield.style.border = '1px solid var(--line)';
-        mathfield.style.borderRadius = '8px';
-        mathfield.style.background = '#fff';
-        mathfield.style.outline = 'none';
-        mathfield.value = '';
-        container.appendChild(mathfield);
-        activeMathfield = mathfield;
+    if (equationActiveCategory === 'Mermaid') {
+        const preview = document.getElementById('mermaidLivePreview');
+        if (codeEditor && preview) {
+            validateAndRenderMermaid(codeEditor.value, preview);
+            setTimeout(() => {
+                codeEditor.focus();
+                codeEditor.select();
+            }, 60);
+        }
+    } else {
+        const container = document.getElementById('mathfieldContainer');
+        if (container) {
+            container.innerHTML = '';
+            const mathfield = document.createElement('math-field');
+            mathfield.id = 'equationMathfield';
+            mathfield.setAttribute('virtual-keyboard-mode', 'auto');
+            mathfield.style.width = '100%';
+            mathfield.style.minHeight = '70px';
+            mathfield.style.fontSize = '16px';
+            mathfield.style.padding = '8px';
+            mathfield.style.border = '1px solid var(--line)';
+            mathfield.style.borderRadius = '8px';
+            mathfield.style.background = '#fff';
+            mathfield.style.outline = 'none';
+            mathfield.value = '';
+            container.appendChild(mathfield);
+            activeMathfield = mathfield;
 
-        mathfield.addEventListener('input', () => {
-            if (latexEditor) {
-                latexEditor.value = mathfield.value;
-                renderEquationPreview(mathfield.value);
-            }
-        });
+            mathfield.addEventListener('input', () => {
+                if (latexEditor) {
+                    latexEditor.value = mathfield.value;
+                    renderEquationPreview(mathfield.value);
+                }
+            });
 
-        mathfield.addEventListener('click', e => {
-            e.stopPropagation();
-        });
-        
-        setTimeout(() => {
-            mathfield.focus();
-        }, 50);
+            mathfield.addEventListener('click', e => {
+                e.stopPropagation();
+            });
+            
+            setTimeout(() => {
+                mathfield.focus();
+            }, 50);
+        }
     }
 }
 
@@ -1101,12 +1138,207 @@ function renderEquationPreview(latex) {
     }
 }
 
+const MERMAID_TEMPLATES = [
+    {
+        id: 'mermaid_pie',
+        category: 'Mermaid',
+        name: 'Pie Chart',
+        code: `pie title Pets owned by staff
+    "Dogs" : 386
+    "Cats" : 85`
+    },
+    {
+        id: 'mermaid_flowchart',
+        category: 'Mermaid',
+        name: 'Flowchart',
+        code: `graph TD
+    A[Christmas] -->|Get money| B(Go shopping)
+    B --> C{Let me think}
+    C -->|One| D[Laptop]
+    C -->|Two| E[iPhone]`
+    },
+    {
+        id: 'mermaid_sequence',
+        category: 'Mermaid',
+        name: 'Sequence Diagram',
+        code: `sequenceDiagram
+    Alice->>Bob: Hello Bob, how are you?
+    Bob-->>Alice: Jolly good!`
+    },
+    {
+        id: 'mermaid_class',
+        category: 'Mermaid',
+        name: 'Class Diagram',
+        code: `classDiagram
+    Animal <|-- Duck
+    Animal <|-- Fish
+    Animal : +int age
+    Animal : +isMammal()`
+    },
+    {
+        id: 'mermaid_state',
+        category: 'Mermaid',
+        name: 'State Diagram',
+        code: `stateDiagram-v2
+    [*] --> Still
+    Still --> [*]`
+    },
+    {
+        id: 'mermaid_er',
+        category: 'Mermaid',
+        name: 'ER Diagram',
+        code: `erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ LINE-ITEM : contains`
+    },
+    {
+        id: 'mermaid_journey',
+        category: 'Mermaid',
+        name: 'User Journey',
+        code: `journey
+    title My working day
+    section Go to work
+      Make tea: 5: Me
+      Go to upstairs: 3: Me
+    section Work
+      Code: 5: Me`
+    },
+    {
+        id: 'mermaid_mindmap',
+        category: 'Mermaid',
+        name: 'Mindmap',
+        code: `mindmap
+  root((mindmap))
+    Origins
+      Long history
+    Research
+      Decline`
+    },
+    {
+        id: 'mermaid_timeline',
+        category: 'Mermaid',
+        name: 'Timeline',
+        code: `timeline
+    title History of Social Media Platform
+    2004 : Facebook
+    2006 : Twitter`
+    },
+    {
+        id: 'mermaid_git',
+        category: 'Mermaid',
+        name: 'Git Graph',
+        code: `gitGraph
+    commit
+    branch hotfix
+    checkout hotfix
+    commit
+    checkout main
+    merge hotfix`
+    }
+];
+
 function renderEquationList() {
     const listContainer = document.getElementById('equationFormulaList');
     const searchInput = document.getElementById('equationSearchInput');
     if (!listContainer || !searchInput) return;
 
     const query = searchInput.value.toLowerCase().trim();
+    
+    if (equationActiveCategory === 'Mermaid') {
+        let list = MERMAID_TEMPLATES;
+        if (query) {
+            list = list.filter(f => 
+                f.name.toLowerCase().includes(query) || 
+                f.category.toLowerCase().includes(query) ||
+                f.code.toLowerCase().includes(query)
+            );
+        }
+        
+        listContainer.innerHTML = list.map(f => `
+            <div class="equation-formula-card" data-template-id="${esc(f.id)}">
+                <div class="equation-formula-name" style="font-weight: 600;">${esc(f.name)}</div>
+                <div class="mermaid-template-render" id="tmpl_render_${esc(f.id)}">
+                    <span class="mermaid-loading" style="font-size: 11px; color: #888;">Rendering preview...</span>
+                </div>
+            </div>
+        `).join('');
+        
+        // Find matching card or default to first card
+        let selectedCode = '';
+        const editor = document.getElementById('mermaidCodeEditor');
+        if (editor) {
+            selectedCode = editor.value.trim();
+        }
+        
+        let activeCardIndex = 0;
+        if (selectedCode) {
+            const index = list.findIndex(f => f.code.trim() === selectedCode);
+            if (index !== -1) activeCardIndex = index;
+        }
+        
+        listContainer.querySelectorAll('.equation-formula-card').forEach((card, index) => {
+            const templateId = card.dataset.templateId;
+            const templateObj = MERMAID_TEMPLATES.find(t => t.id === templateId);
+            const templateCode = templateObj ? templateObj.code : '';
+            
+            if (index === activeCardIndex) {
+                card.classList.add('selected');
+                if (!selectedCode && editor) {
+                    editor.value = templateCode;
+                    const preview = document.getElementById('mermaidLivePreview');
+                    if (preview) {
+                        validateAndRenderMermaid(templateCode, preview);
+                    }
+                }
+            }
+            
+            card.addEventListener('click', e => {
+                e.stopPropagation();
+                listContainer.querySelectorAll('.equation-formula-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                
+                // Reset zoom factor when loading a new template diagram
+                mermaidZoomScale = 1.0;
+                
+                const preview = document.getElementById('mermaidLivePreview');
+                if (editor) {
+                    editor.value = templateCode;
+                    editor.focus();
+                    editor.select();
+                }
+                if (preview) {
+                    validateAndRenderMermaid(templateCode, preview);
+                }
+            });
+        });
+        
+        // Asynchronously render the templates
+        list.forEach(async f => {
+            const targetId = `tmpl_render_${f.id}`;
+            const targetEl = document.getElementById(targetId);
+            if (targetEl) {
+                try {
+                    const id = `mermaid_tmpl_svg_${uid('svg')}`;
+                    const tempDiv = document.createElement('div');
+                    tempDiv.style.position = 'absolute';
+                    tempDiv.style.left = '-9999px';
+                    tempDiv.style.top = '-9999px';
+                    document.body.appendChild(tempDiv);
+                    
+                    try {
+                        const { svg } = await mermaid.render(id, f.code, tempDiv);
+                        targetEl.innerHTML = svg;
+                    } finally {
+                        tempDiv.remove();
+                    }
+                } catch (err) {
+                    targetEl.innerHTML = `<span style="color: #ef4444; font-size: 11px;">Failed to render</span>`;
+                }
+            }
+        });
+        
+        return;
+    }
     
     let list = [];
     if (equationActiveCategory === 'recent') {
@@ -1188,6 +1420,487 @@ function renderEquationList() {
     });
 }
 
+let activeInsertDiagramEditorId = null;
+let activeMermaidTokenElement = null;
+
+if (window.mermaid) {
+    mermaid.initialize({ startOnLoad: false, theme: 'default' });
+}
+
+function svgToPng(svgString) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                // Render at the natural size (which is already high-resolution)
+                const width = img.naturalWidth || 800;
+                const height = img.naturalHeight || 600;
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                
+                // Enable high-quality image smoothing
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const png = canvas.toDataURL('image/png');
+                
+                console.log(`[Mermaid DPI Render] Canvas compiled at size: ${canvas.width}x${canvas.height}`);
+                resolve(png);
+            } catch (err) {
+                reject(err);
+            }
+        };
+        img.onerror = (e) => reject(new Error("Failed to load SVG into image: " + e));
+        img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)));
+    });
+}
+
+async function validateAndRenderMermaid(code, targetElement) {
+    try {
+        const errMsg = document.getElementById('mermaidErrorMessage');
+        if (errMsg) errMsg.hidden = true;
+        targetElement.hidden = false;
+        
+        let renderContainer = targetElement;
+        if (targetElement.id === 'mermaidLivePreview') {
+            renderContainer = document.getElementById('mermaidPreviewContent') || targetElement;
+            const controls = document.getElementById('mermaidZoomControls');
+            if (controls) controls.style.display = 'flex';
+        }
+        
+        if (!code.trim()) {
+            renderContainer.innerHTML = '<span class="mermaid-loading">Type code to preview</span>';
+            return true;
+        }
+        
+        // Parse the code
+        await mermaid.parse(code);
+        
+        // Render it
+        const id = `mermaid_preview_${uid('svg')}`;
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px';
+        tempDiv.style.top = '-9999px';
+        document.body.appendChild(tempDiv);
+        
+        try {
+            const { svg } = await mermaid.render(id, code, tempDiv);
+            renderContainer.innerHTML = svg;
+            
+            // Constrain SVG sizing and apply scale transforms
+            const svgEl = renderContainer.querySelector('svg');
+            if (svgEl) {
+                if (targetElement.id === 'mermaidLivePreview') {
+                    updateMermaidZoom();
+                } else {
+                    svgEl.removeAttribute('style');
+                    svgEl.style.maxWidth = '100%';
+                    svgEl.style.maxHeight = '100%';
+                    svgEl.style.width = '100%';
+                    svgEl.style.height = '100%';
+                }
+            }
+        } finally {
+            tempDiv.remove();
+        }
+        return true;
+    } catch (err) {
+        console.error("Mermaid parsing/rendering error:", err);
+        const errMsg = document.getElementById('mermaidErrorMessage');
+        if (errMsg) errMsg.hidden = false;
+        targetElement.hidden = true;
+        return false;
+    }
+}
+
+function toggleEditorViewForCategory(category) {
+    const modalContent = document.querySelector('.equation-modal-content');
+    if (modalContent) {
+        modalContent.classList.toggle('mermaid-active', category === 'Mermaid');
+    }
+    const mathContainer = document.getElementById('visualFormulaEditorContainer');
+    
+    const latexEditor = document.getElementById('equationLatexEditor');
+    const mermaidEditor = document.getElementById('mermaidCodeEditor');
+    const editorLabel = document.getElementById('editorAreaLabel');
+    
+    const latexPreview = document.getElementById('equationLivePreview');
+    const mermaidPreview = document.getElementById('mermaidLivePreview');
+    const previewLabel = document.getElementById('previewAreaLabel');
+    const mermaidErr = document.getElementById('mermaidErrorMessage');
+    
+    const title = document.getElementById('equationModalTitle');
+    const insertBtn = document.getElementById('insertEquationBtn');
+    
+    if (category === 'Mermaid') {
+        if (mathContainer) mathContainer.hidden = true;
+        
+        if (latexEditor) latexEditor.hidden = true;
+        if (mermaidEditor) mermaidEditor.hidden = false;
+        if (editorLabel) editorLabel.textContent = 'Mermaid Code Editor';
+        
+        if (latexPreview) latexPreview.hidden = true;
+        if (mermaidPreview) mermaidPreview.hidden = false;
+        if (previewLabel) previewLabel.textContent = 'Live Preview';
+        
+        if (title) title.textContent = activeMermaidTokenElement ? 'Edit Mermaid Diagram' : 'Insert Mermaid Diagram';
+        if (insertBtn) insertBtn.textContent = activeMermaidTokenElement ? 'Update Diagram' : 'Insert Diagram';
+    } else {
+        if (mathContainer) mathContainer.hidden = false;
+        
+        if (latexEditor) latexEditor.hidden = false;
+        if (mermaidEditor) mermaidEditor.hidden = true;
+        if (editorLabel) editorLabel.textContent = 'LaTeX Editor';
+        
+        if (latexPreview) latexPreview.hidden = false;
+        if (mermaidPreview) mermaidPreview.hidden = true;
+        if (previewLabel) previewLabel.textContent = 'Live Preview';
+        if (mermaidErr) mermaidErr.hidden = true;
+        
+        if (title) title.textContent = 'Insert Equation';
+        if (insertBtn) insertBtn.textContent = 'Insert Equation';
+    }
+}
+
+let contextMenuTargetToken = null;
+let isContextMenuOpen = false;
+let mermaidZoomScale = 1.0;
+
+function updateMermaidZoom() {
+    const svgEl = document.querySelector('#mermaidPreviewContent svg');
+    const container = document.getElementById('mermaidPreviewContent');
+    if (svgEl && container) {
+        const containerWidth = container.clientWidth - 20; // 10px padding on each side
+        const containerHeight = container.clientHeight - 20;
+        
+        let svgWidth = 800;
+        let svgHeight = 600;
+        
+        const viewBoxStr = svgEl.getAttribute('viewBox');
+        if (viewBoxStr) {
+            const parts = viewBoxStr.trim().split(/\s+/);
+            if (parts.length === 4) {
+                const w = parseFloat(parts[2]);
+                const h = parseFloat(parts[3]);
+                if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) {
+                    svgWidth = w;
+                    svgHeight = h;
+                }
+            }
+        } else {
+            const attrWidth = parseFloat(svgEl.getAttribute('width'));
+            const attrHeight = parseFloat(svgEl.getAttribute('height'));
+            if (!isNaN(attrWidth) && attrWidth > 0) svgWidth = attrWidth;
+            if (!isNaN(attrHeight) && attrHeight > 0) svgHeight = attrHeight;
+        }
+        
+        const fitScale = Math.min(containerWidth / svgWidth, containerHeight / svgHeight);
+        
+        // Smart scale selection:
+        // Ensure small diagrams are displayed at least at natural size (1.0).
+        // Larger diagrams are scaled to fit, but clamped to a minimum readability scale of 0.75.
+        let baseScale = fitScale;
+        if (fitScale >= 1.0) {
+            baseScale = 1.0;
+        } else {
+            baseScale = Math.max(0.75, fitScale);
+        }
+        
+        const finalScale = baseScale * mermaidZoomScale;
+        
+        // Apply scaled size directly to styling to avoid visual/layout bounds mismatch
+        svgEl.removeAttribute('style');
+        svgEl.style.width = `${svgWidth * finalScale}px`;
+        svgEl.style.height = `${svgHeight * finalScale}px`;
+        svgEl.style.display = 'block';
+        svgEl.style.transition = 'width 0.15s ease-out, height 0.15s ease-out';
+    }
+}
+
+function hideContextMenu() {
+    isContextMenuOpen = false;
+    contextMenuTargetToken = null;
+    const contextMenu = document.getElementById('customContextMenu');
+    if (contextMenu) {
+        contextMenu.style.display = 'none';
+        contextMenu.hidden = true;
+    }
+}
+
+function deleteSelectedToken(token) {
+    const visualEditor = token.closest('[data-visual-editor]');
+    if (!visualEditor) return;
+    
+    const editorId = visualEditor.dataset.editorId;
+    visualEditor.focus();
+    
+    const selection = window.getSelection();
+    if (selection) {
+        try {
+            const range = document.createRange();
+            range.selectNode(token);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            // Delete command preserving contenteditable undo stack
+            const success = document.execCommand('delete', false, null);
+            if (!success || token.parentNode) {
+                token.remove();
+            }
+        } catch (err) {
+            token.remove();
+        }
+    } else {
+        token.remove();
+    }
+    
+    updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+}
+
+// Centralized document-level click delegation
+document.addEventListener('click', e => {
+    // Hide context menu on any click OUTSIDE the context menu itself
+    if (!e.target.closest('#customContextMenu')) {
+        hideContextMenu();
+    }
+    
+    // 4. Check if clicked diagram corner delete button
+    const diagramDeleteBtn = e.target.closest('.mermaid-token .delete-btn');
+    if (diagramDeleteBtn) {
+        e.stopPropagation();
+        const token = diagramDeleteBtn.closest('.mermaid-token');
+        if (token) {
+            deleteSelectedToken(token);
+        }
+        return;
+    }
+    
+    // 5. Handle diagram token selection
+    const token = e.target.closest('.mermaid-token');
+    if (token) {
+        const visualEditor = token.closest('[data-visual-editor]');
+        if (visualEditor) {
+            e.stopPropagation();
+            
+            // Select this token
+            document.querySelectorAll('.mermaid-token.selected').forEach(t => t.classList.remove('selected'));
+            token.classList.add('selected');
+            
+            // Programmatically focus and select the token node
+            visualEditor.focus();
+            const selection = window.getSelection();
+            if (selection) {
+                const range = document.createRange();
+                range.selectNode(token);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+        }
+    } else {
+        // Clicked outside, deselect all
+        document.querySelectorAll('.mermaid-token.selected').forEach(t => t.classList.remove('selected'));
+    }
+});
+
+// Context Menu Right-click delegation on .mermaid-token
+document.addEventListener('contextmenu', e => {
+    const token = e.target.closest('.mermaid-token');
+    if (token) {
+        const visualEditor = token.closest('[data-visual-editor]');
+        if (visualEditor) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Select this token
+            document.querySelectorAll('.mermaid-token.selected').forEach(t => t.classList.remove('selected'));
+            token.classList.add('selected');
+            
+            // Programmatically focus and select the token node
+            visualEditor.focus();
+            const selection = window.getSelection();
+            if (selection) {
+                const range = document.createRange();
+                range.selectNode(token);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            
+            contextMenuTargetToken = token;
+            
+            isContextMenuOpen = true;
+            const contextMenu = document.getElementById('customContextMenu');
+            if (contextMenu) {
+                contextMenu.style.left = `${e.clientX}px`;
+                contextMenu.style.top = `${e.clientY}px`;
+                contextMenu.style.display = 'flex';
+                contextMenu.hidden = false;
+            }
+        }
+    } else {
+        hideContextMenu();
+    }
+});
+
+// Delegate double-clicks on .mermaid-token to trigger editing inside the Equation Modal
+document.addEventListener('dblclick', e => {
+    const token = e.target.closest('.mermaid-token');
+    if (token) {
+        const visualEditor = token.closest('[data-visual-editor]');
+        if (visualEditor) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Select this token
+            document.querySelectorAll('.mermaid-token.selected').forEach(t => t.classList.remove('selected'));
+            token.classList.add('selected');
+            
+            // Programmatically focus and select the token node
+            visualEditor.focus();
+            const selection = window.getSelection();
+            if (selection) {
+                const range = document.createRange();
+                range.selectNode(token);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            
+            const editorId = visualEditor.dataset.editorId;
+            insertEquation(editorId, token);
+        }
+    }
+});
+
+// Key listener to delete selected Mermaid diagrams
+document.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+        const selectedToken = document.querySelector('.mermaid-token.selected');
+        if (selectedToken) {
+            e.preventDefault();
+            deleteSelectedToken(selectedToken);
+        }
+    }
+});
+
+// Centralized document-level mousedown listener (handles both context menu actions and drag resizing)
+document.addEventListener('mousedown', e => {
+    // 1. Handle Context Menu "Edit Diagram" Button Click
+    const editBtn = e.target.closest('#contextEditDiagram');
+    if (editBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const token = contextMenuTargetToken;
+        
+        // Close context menu first and clear active context variables
+        hideContextMenu();
+        
+        // Open Mermaid editor modal
+        if (token) {
+            const visualEditor = token.closest('[data-visual-editor]');
+            if (visualEditor) {
+                const editorId = visualEditor.dataset.editorId;
+                insertEquation(editorId, token);
+            }
+        }
+        return;
+    }
+    
+    // 2. Handle Context Menu "Delete Diagram" Button Click
+    const deleteBtn = e.target.closest('#contextDeleteDiagram');
+    if (deleteBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const token = contextMenuTargetToken;
+        
+        // Close context menu first and clear active context variables
+        hideContextMenu();
+        
+        if (token) {
+            deleteSelectedToken(token);
+        }
+        return;
+    }
+
+    // 3. Handle Drag to resize Mermaid diagrams
+    const handle = e.target.closest('.resize-handle');
+    if (!handle) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const token = handle.closest('.mermaid-token');
+    if (!token) return;
+    
+    const startWidth = token.offsetWidth;
+    const startX = e.clientX;
+    const isLeft = handle.classList.contains('tl') || handle.classList.contains('bl');
+    
+    const onMouseMove = (moveEvent) => {
+        const deltaX = moveEvent.clientX - startX;
+        let newWidth = startWidth;
+        if (isLeft) {
+            newWidth = startWidth - deltaX;
+        } else {
+            newWidth = startWidth + deltaX;
+        }
+        // Limit minimum and maximum width
+        newWidth = Math.max(80, Math.min(800, newWidth));
+        token.style.width = newWidth + 'px';
+    };
+    
+    const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        
+        // Trigger save
+        const visualEditor = token.closest('[data-visual-editor]');
+        if (visualEditor) {
+            const editorId = visualEditor.dataset.editorId;
+            updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+        }
+    };
+    
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+});
+
+function renderMermaidSoon() {
+    requestAnimationFrame(async () => {
+        if (!window.mermaid) return;
+        const tokens = document.querySelectorAll('.mermaid-token:not([data-rendered])');
+        for (const token of tokens) {
+            token.setAttribute('data-rendered', 'loading');
+            const base64Code = token.dataset.mermaid;
+            if (!base64Code) continue;
+            try {
+                const code = decodeURIComponent(escape(atob(base64Code)));
+                const id = `mermaid_${uid('svg')}`;
+                const tempDiv = document.createElement('div');
+                tempDiv.style.position = 'absolute';
+                tempDiv.style.left = '-9999px';
+                tempDiv.style.top = '-9999px';
+                document.body.appendChild(tempDiv);
+                
+                try {
+                    const { svg } = await mermaid.render(id, code, tempDiv);
+                    token.innerHTML = svg + `<div class="resize-handle tl"></div><div class="resize-handle tr"></div><div class="resize-handle bl"></div><div class="resize-handle br"></div>`;
+                } finally {
+                    tempDiv.remove();
+                }
+                token.setAttribute('data-rendered', 'true');
+            } catch (err) {
+                console.error("Error rendering mermaid token:", err);
+                token.innerHTML = `<span class="mermaid-error">Unable to render diagram</span><div class="resize-handle tl"></div><div class="resize-handle tr"></div><div class="resize-handle bl"></div><div class="resize-handle br"></div>`;
+                token.setAttribute('data-rendered', 'true');
+            }
+        }
+    });
+}
+
 function initEquationModal() {
     const modal = document.getElementById('equationModal');
     if (!modal) return;
@@ -1205,6 +1918,8 @@ function initEquationModal() {
     const searchInput = document.getElementById('equationSearchInput');
     const latexEditor = document.getElementById('equationLatexEditor');
     const categoryBtns = modal.querySelectorAll('.category-btn');
+    const mermaidCodeEditor = document.getElementById('mermaidCodeEditor');
+    const mermaidLivePreview = document.getElementById('mermaidLivePreview');
 
     const closeModal = () => {
         const container = document.getElementById('mathfieldContainer');
@@ -1216,6 +1931,7 @@ function initEquationModal() {
         const editorId = activeInsertEquationEditorId;
         modal.hidden = true;
         activeInsertEquationEditorId = null;
+        activeMermaidTokenElement = null;
         savedRange = null;
         savedSelectionStart = null;
         savedSelectionEnd = null;
@@ -1270,7 +1986,19 @@ function initEquationModal() {
             categoryBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             equationActiveCategory = btn.dataset.category;
+            toggleEditorViewForCategory(equationActiveCategory);
             renderEquationList();
+            
+            if (equationActiveCategory === 'Mermaid') {
+                if (mermaidCodeEditor && mermaidLivePreview) {
+                    if (!mermaidCodeEditor.value) {
+                        mermaidCodeEditor.value = `pie title Pets owned by staff
+    "Dogs" : 386
+    "Cats" : 85`;
+                    }
+                    validateAndRenderMermaid(mermaidCodeEditor.value, mermaidLivePreview);
+                }
+            }
         });
     });
 
@@ -1289,8 +2017,131 @@ function initEquationModal() {
         });
     }
 
+    if (mermaidCodeEditor && mermaidLivePreview) {
+        let renderTimeout;
+        mermaidCodeEditor.addEventListener('input', () => {
+            clearTimeout(renderTimeout);
+            renderTimeout = setTimeout(() => {
+                validateAndRenderMermaid(mermaidCodeEditor.value, mermaidLivePreview);
+            }, 300);
+        });
+        
+        const zoomIn = document.getElementById('mermaidZoomIn');
+        if (zoomIn) {
+            zoomIn.addEventListener('click', e => {
+                e.stopPropagation();
+                mermaidZoomScale = Math.min(3.0, mermaidZoomScale + 0.15);
+                updateMermaidZoom();
+            });
+        }
+        const zoomOut = document.getElementById('mermaidZoomOut');
+        if (zoomOut) {
+            zoomOut.addEventListener('click', e => {
+                e.stopPropagation();
+                mermaidZoomScale = Math.max(0.2, mermaidZoomScale - 0.15);
+                updateMermaidZoom();
+            });
+        }
+        const zoomReset = document.getElementById('mermaidZoomReset');
+        if (zoomReset) {
+            zoomReset.addEventListener('click', e => {
+                e.stopPropagation();
+                mermaidZoomScale = 1.0;
+                updateMermaidZoom();
+            });
+        }
+    }
+
     if (insertBtn) {
-        insertBtn.addEventListener('click', () => {
+        insertBtn.addEventListener('click', async () => {
+            if (equationActiveCategory === 'Mermaid') {
+                if (!mermaidCodeEditor || !mermaidLivePreview) return;
+                const code = mermaidCodeEditor.value.trim();
+                if (!code) return;
+                
+                const isValid = await validateAndRenderMermaid(code, mermaidLivePreview);
+                if (!isValid) return; // Block modal closing or insert if syntax is invalid
+                
+                const svgElement = mermaidLivePreview.querySelector('svg');
+                if (!svgElement) return;
+                
+                let pngDataUrl = '';
+                try {
+                    const clonedSvg = svgElement.cloneNode(true);
+                    clonedSvg.removeAttribute('style');
+                    
+                    let svgWidth = 800;
+                    let svgHeight = 600;
+                    const viewBoxStr = clonedSvg.getAttribute('viewBox');
+                    if (viewBoxStr) {
+                        const parts = viewBoxStr.trim().split(/\s+/);
+                        if (parts.length === 4) {
+                            const w = parseFloat(parts[2]);
+                            const h = parseFloat(parts[3]);
+                            if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) {
+                                svgWidth = w;
+                                svgHeight = h;
+                            }
+                        }
+                    }
+                    
+                    // Render at 4x resolution for super-crisp high-DPI print output
+                    clonedSvg.setAttribute('width', svgWidth * 4);
+                    clonedSvg.setAttribute('height', svgHeight * 4);
+                    
+                    const svgString = new XMLSerializer().serializeToString(clonedSvg);
+                    pngDataUrl = await svgToPng(svgString);
+                } catch (err) {
+                    console.error("Error converting SVG to PNG:", err);
+                    const base64Svg = btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(svgElement))));
+                    pngDataUrl = 'data:image/svg+xml;base64,' + base64Svg;
+                }
+                
+                const base64Code = btoa(unescape(encodeURIComponent(code)));
+                const editorId = activeInsertEquationEditorId;
+                const saved = editorSelections[editorId];
+                
+                if (activeMermaidTokenElement) {
+                    activeMermaidTokenElement.dataset.mermaid = base64Code;
+                    activeMermaidTokenElement.dataset.png = pngDataUrl;
+                    const img = activeMermaidTokenElement.querySelector('img');
+                    if (img) img.src = pngDataUrl;
+                    
+                    const visualEditor = activeMermaidTokenElement.closest('[data-visual-editor]');
+                    if (visualEditor) {
+                        updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+                    }
+                } else {
+                    if (saved && saved.element) {
+                        if (saved.isVisual) {
+                            const html = mermaidHtml(base64Code, '', pngDataUrl);
+                            insertHtmlIntoVisualEditor(saved.element, html, saved.range);
+                            updateFieldFromEditor(editorId, markdownFromVisual(saved.element));
+                        } else {
+                            const tag = `[mermaid:${base64Code}:${pngDataUrl}]`;
+                            insertAtCursor(saved.element, tag, true, saved.selectionStart, saved.selectionEnd);
+                            saved.element.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    } else if (editorId) {
+                        const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+                        if (wrapper) {
+                            if (wrapper.classList.contains('show-code')) {
+                                const codeTextArea = wrapper.querySelector('[data-code-editor]');
+                                insertAtCursor(codeTextArea, `[mermaid:${base64Code}:${pngDataUrl}]`, true);
+                                codeTextArea.dispatchEvent(new Event('input', { bubbles: true }));
+                            } else {
+                                const visual = wrapper.querySelector('[data-visual-editor]');
+                                const html = mermaidHtml(base64Code, '', pngDataUrl);
+                                insertHtmlIntoVisualEditor(visual, html);
+                                updateFieldFromEditor(editorId, markdownFromVisual(visual));
+                            }
+                        }
+                    }
+                }
+                closeModal();
+                return;
+            }
+
             const latex = latexEditor.value.trim();
             if (!latex) return;
             
@@ -1336,6 +2187,15 @@ function initEquationModal() {
                         updateFieldFromEditor(editorId, markdownFromVisual(visual));
                     }
                 }
+            }
+        });
+    }
+
+    // Window resize event handler to make Mermaid Live Preview responsive
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('resize', () => {
+            if (isEquationModalOpen && equationActiveCategory === 'Mermaid') {
+                updateMermaidZoom();
             }
         });
     }
@@ -1525,7 +2385,7 @@ function markdownToVisualHtml(markdown) {
     const source = String(markdown || '');
     if (!source.trim()) return '';
     let html = '';
-    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\*\*([^*]+)\*\*|\*([^*]+)\*|\n/g;
+    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\*\*([^*]+)\*\*|\*([^*]+)\*|\n/g;
     let last = 0;
     let match;
     while ((match = tokenRe.exec(source))) {
@@ -1535,9 +2395,25 @@ function markdownToVisualHtml(markdown) {
         } else if (match[3]) {
             html += mathHtml(match[3]);
         } else if (match[4]) {
-            html += `<strong>${esc(match[4])}</strong>`;
-        } else if (match[5]) {
-            html += `<em>${esc(match[5])}</em>`;
+            let code = match[4];
+            let width = '';
+            let height = '';
+            let png = '';
+            if (match[5]) {
+                if (match[5].startsWith('data:')) {
+                    png = match[5];
+                } else {
+                    const dims = match[5].split('_');
+                    width = dims[0];
+                    height = dims[1] || '';
+                    png = match[6] || '';
+                }
+            }
+            html += mermaidHtml(code, width, png, height);
+        } else if (match[7]) {
+            html += `<strong>${esc(match[7])}</strong>`;
+        } else if (match[8]) {
+            html += `<em>${esc(match[8])}</em>`;
         } else {
             html += '<br>';
         }
@@ -1560,6 +2436,20 @@ function mathHtml(latex) {
     return `<span class="math-token" data-latex="${safeLatex}" contenteditable="false">${rendered}</span>`;
 }
 
+function mermaidHtml(base64Code, width = '', pngDataUrl = '', height = '') {
+    let style = '';
+    if (width && height) {
+        style = `style="width: ${width}px; height: ${height}px;"`;
+    } else if (width) {
+        style = `style="width: ${width}px;"`;
+    }
+    if (pngDataUrl) {
+        return `<span class="mermaid-token" data-mermaid="${base64Code}" data-png="${pngDataUrl}" ${style} data-rendered="true" contenteditable="false"><img src="${pngDataUrl}" style="width: 100%; height: auto;" /><div class="delete-btn" title="Delete Diagram">🗑</div><div class="resize-handle tl"></div><div class="resize-handle tr"></div><div class="resize-handle bl"></div><div class="resize-handle br"></div></span>`;
+    } else {
+        return `<span class="mermaid-token" data-mermaid="${base64Code}" ${style} contenteditable="false"><span class="mermaid-loading">Rendering diagram...</span><div class="delete-btn" title="Delete Diagram">🗑</div><div class="resize-handle tl"></div><div class="resize-handle tr"></div><div class="resize-handle bl"></div><div class="resize-handle br"></div></span>`;
+    }
+}
+
 function markdownFromVisual(root) {
     return Array.from(root.childNodes).map(nodeToMarkdown).join('').replace(/\u00a0/g, ' ').trim();
 }
@@ -1574,6 +2464,24 @@ function nodeToMarkdown(node) {
     }
     if (el.matches('.math-token')) {
         return `\\(${el.dataset.latex || el.textContent || ''}\\)`;
+    }
+    if (el.matches('.mermaid-token')) {
+        const png = el.dataset.png || '';
+        const code = el.dataset.mermaid || '';
+        let widthVal = '';
+        let heightVal = '';
+        if (el.style.width) {
+            widthVal = el.style.width.replace('px', '');
+        }
+        if (el.style.height) {
+            heightVal = el.style.height.replace('px', '');
+        }
+        const dims = widthVal && heightVal ? `${widthVal}_${heightVal}` : widthVal;
+        if (dims) {
+            return png ? `[mermaid:${code}:${dims}:${png}]` : `[mermaid:${code}:${dims}]`;
+        } else {
+            return png ? `[mermaid:${code}:${png}]` : `[mermaid:${code}]`;
+        }
     }
     const content = Array.from(el.childNodes).map(nodeToMarkdown).join('');
     if (el.matches('strong,b')) return `**${content}**`;
@@ -2020,9 +2928,155 @@ function importBackup(event) {
     reader.readAsText(file);
 }
 
-function exportWord() {
-    const paper = getActivePaper();
-    if (!paper) return;
+async function compileAllMermaidDiagramsInPaper(paper) {
+    const compileTag = async (match, code, p5, p6) => {
+        let png = '';
+        let width = '';
+        let height = '';
+        if (p5) {
+            if (p5.startsWith('data:')) {
+                png = p5;
+            } else {
+                const dims = p5.split('_');
+                width = dims[0];
+                height = dims[1] || '';
+                png = p6 || '';
+            }
+        }
+        
+        if (!png) {
+            try {
+                const decodedCode = decodeURIComponent(escape(atob(code)));
+                
+                // Render to SVG
+                const id = `mermaid_docx_${uid('svg')}`;
+                const tempDiv = document.createElement('div');
+                tempDiv.style.position = 'absolute';
+                tempDiv.style.left = '-9999px';
+                tempDiv.style.top = '-9999px';
+                tempDiv.style.width = '1200px'; // Prevent layout and font size collapse during offscreen rendering
+                document.body.appendChild(tempDiv);
+                
+                try {
+                    const { svg } = await mermaid.render(id, decodedCode, tempDiv);
+                    
+                    // Convert SVG to PNG
+                    const tempContainer = document.createElement('div');
+                    tempContainer.innerHTML = svg;
+                    const svgEl = tempContainer.querySelector('svg');
+                    let pngDataUrl = '';
+                    if (svgEl) {
+                        svgEl.removeAttribute('style');
+                        let svgWidth = 800;
+                        let svgHeight = 600;
+                        const viewBoxStr = svgEl.getAttribute('viewBox');
+                        if (viewBoxStr) {
+                            const parts = viewBoxStr.trim().split(/\s+/);
+                            if (parts.length === 4) {
+                                const w = parseFloat(parts[2]);
+                                const h = parseFloat(parts[3]);
+                                if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) {
+                                    svgWidth = w;
+                                    svgHeight = h;
+                                }
+                            }
+                        }
+                        
+                        // Scale layout proportionally for printing default dimensions
+                        const MAX_DEFAULT_WIDTH = 450;
+                        if (svgWidth > MAX_DEFAULT_WIDTH) {
+                            const scale = MAX_DEFAULT_WIDTH / svgWidth;
+                            width = Math.round(MAX_DEFAULT_WIDTH);
+                            height = Math.round(svgHeight * scale);
+                        } else {
+                            width = Math.round(svgWidth);
+                            height = Math.round(svgHeight);
+                        }
+                        
+                        // Render at 4x resolution for high-DPI crisp print output
+                        svgEl.setAttribute('width', svgWidth * 4);
+                        svgEl.setAttribute('height', svgHeight * 4);
+                        const svgString = new XMLSerializer().serializeToString(svgEl);
+                        pngDataUrl = await svgToPng(svgString);
+                        
+                        console.log(`[Mermaid Export Log]`, {
+                            originalSvg: { width: svgWidth, height: svgHeight },
+                            compiledPng: { width: svgWidth * 4, height: svgHeight * 4 },
+                            docxWordInsertion: { width: width, height: height }
+                        });
+                    }
+                    if (pngDataUrl) {
+                        png = pngDataUrl;
+                    }
+                } finally {
+                    tempDiv.remove();
+                }
+            } catch (err) {
+                console.error("Error compiling Mermaid during DOCX export:", err);
+            }
+        }
+        
+        if (png) {
+            const dims = width && height ? `${width}_${height}` : width;
+            return dims ? `[mermaid:${code}:${dims}:${png}]` : `[mermaid:${code}:${png}]`;
+        }
+        return match;
+    };
+
+    const processField = async (text) => {
+        if (!text) return text;
+        const regex = /\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]/g;
+        const matches = [];
+        let m;
+        while ((m = regex.exec(text))) {
+            matches.push(m);
+        }
+        
+        let newText = text;
+        for (const matchInfo of matches) {
+            const fullMatch = matchInfo[0];
+            const code = matchInfo[1];
+            const p5 = matchInfo[2];
+            const p6 = matchInfo[3];
+            const compiled = await compileTag(fullMatch, code, p5, p6);
+            newText = newText.replace(fullMatch, compiled);
+        }
+        return newText;
+    };
+
+    if (paper.meta && paper.meta.instructions) {
+        paper.meta.instructions = await processField(paper.meta.instructions);
+    }
+    
+    if (paper.sections) {
+        for (const section of paper.sections) {
+            if (section.questions) {
+                for (const question of section.questions) {
+                    if (question.text) {
+                        question.text = await processField(question.text);
+                    }
+                    if (question.options) {
+                        for (const option of question.options) {
+                            if (option.text) {
+                                option.text = await processField(option.text);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+async function exportWord() {
+    const activePaper = getActivePaper();
+    if (!activePaper) return;
+    toast('Generating Word document...');
+    
+    // Deep copy to prevent mutating active state
+    const paper = deepCopy(activePaper);
+    await compileAllMermaidDiagramsInPaper(paper);
+    
     const blob = buildDocxBlob(paper);
     downloadBlob(blob, `${fileName(paper.title)}.docx`);
     toast('DOCX exported');
@@ -2162,7 +3216,35 @@ function docxInlineFromMarkdown(markdown, media) {
     parseDocxMarkdown(markdown).forEach(segment => {
         if (segment.type === 'text') pieces.push(...docxTextRunsFromMarkdownText(segment.text));
         if (segment.type === 'math') pieces.push(docxMath(segment.latex));
-        if (segment.type === 'image') pieces.push(docxImageRun(segment.src, media, 160, 100));
+        if (segment.type === 'image') {
+            let w = 160;
+            let h = 100;
+            if (segment.alt === 'Mermaid Diagram') {
+                w = 400;
+                h = 300;
+                if (segment.width && segment.height) {
+                    const customW = parseFloat(segment.width);
+                    const customH = parseFloat(segment.height);
+                    if (!isNaN(customW) && !isNaN(customH) && customW > 0 && customH > 0) {
+                        w = customW;
+                        h = customH;
+                    }
+                }
+                
+                // Constrain maximum printable width to fit standard margins nicely
+                const MAX_PRINT_WIDTH = 450;
+                if (w > MAX_PRINT_WIDTH) {
+                    const scale = MAX_PRINT_WIDTH / w;
+                    w = MAX_PRINT_WIDTH;
+                    h = h * scale;
+                }
+            } else {
+                if (segment.width) w = parseFloat(segment.width) || w;
+                if (segment.height) h = parseFloat(segment.height) || h;
+            }
+            pieces.push(docxImageRun(segment.src, media, w, h));
+        }
+        if (segment.type === 'mermaid') pieces.push(docxTextRun('[Mermaid Diagram]', { italic: true }));
     });
     return pieces;
 }
@@ -2170,13 +3252,36 @@ function docxInlineFromMarkdown(markdown, media) {
 function parseDocxMarkdown(markdown) {
     const source = String(markdown || '');
     const segments = [];
-    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)/g;
+    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]/g;
     let last = 0;
     let match;
     while ((match = tokenRe.exec(source))) {
         if (match.index > last) segments.push({ type: 'text', text: source.slice(last, match.index) });
-        if (match[2]) segments.push({ type: 'image', alt: match[1], src: match[2] });
-        else segments.push({ type: 'math', latex: match[3] });
+        if (match[2]) {
+            segments.push({ type: 'image', alt: match[1], src: match[2] });
+        } else if (match[3]) {
+            segments.push({ type: 'math', latex: match[3] });
+        } else if (match[4]) {
+            let code = match[4];
+            let width = '';
+            let height = '';
+            let png = '';
+            if (match[5]) {
+                if (match[5].startsWith('data:')) {
+                    png = match[5];
+                } else {
+                    const dims = match[5].split('_');
+                    width = dims[0];
+                    height = dims[1] || '';
+                    png = match[6] || '';
+                }
+            }
+            if (png) {
+                segments.push({ type: 'image', alt: 'Mermaid Diagram', src: png, width: width, height: height });
+            } else {
+                segments.push({ type: 'mermaid', base64: code });
+            }
+        }
         last = tokenRe.lastIndex;
     }
     if (last < source.length) segments.push({ type: 'text', text: source.slice(last) });
