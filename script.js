@@ -3416,6 +3416,64 @@ function buildDocumentRels(media) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${imageRels}</Relationships>`;
 }
 
+function docxQuestionParagraphs(questionNumber, markdown, media) {
+    const segments = parseDocxMarkdown(markdown);
+    let xml = '';
+    let currentRuns = [];
+    let isFirstParagraph = true;
+    
+    const commitParagraph = () => {
+        if (currentRuns.length === 0 && !isFirstParagraph) return;
+        
+        const prefixRuns = [];
+        if (isFirstParagraph) {
+            prefixRuns.push(docxTextRun(`${questionNumber}) `, { bold: true }));
+        }
+        
+        xml += docxParagraph([...prefixRuns, ...currentRuns], { after: 50 });
+        currentRuns = [];
+        isFirstParagraph = false;
+    };
+    
+    segments.forEach((segment) => {
+        if (segment.type === 'text') {
+            const parts = segment.text.split('\n');
+            parts.forEach((part, index) => {
+                if (index > 0) {
+                    commitParagraph();
+                }
+                if (part) {
+                    currentRuns.push(...docxTextRunsFromMarkdownText(part));
+                }
+            });
+        } else if (segment.type === 'math') {
+            currentRuns.push(docxMath(segment.latex));
+        } else if (segment.type === 'image') {
+            commitParagraph();
+            
+            let w = 450;
+            let h = 300;
+            if (segment.width && segment.height) {
+                w = Number(segment.width) || 450;
+                h = Number(segment.height) || 300;
+            } else if (segment.width) {
+                w = Number(segment.width) || 450;
+                h = Math.round(w * 0.66);
+            }
+            const imgRun = docxImageRun(segment.src, media, w, h);
+            if (imgRun) {
+                xml += docxParagraph([imgRun], { align: 'center', before: 50, after: 50 });
+            }
+        } else if (segment.type === 'mermaid') {
+            commitParagraph();
+            xml += docxParagraph([docxTextRun('[Mermaid Diagram]', { italic: true })], { after: 50 });
+        }
+    });
+    
+    commitParagraph();
+    return xml;
+}
+
 function buildDocumentXml(paper, media) {
     let body = '';
     body += docxParagraph([docxTextRun(paper.title || 'Question Paper', { bold: true, size: 30 })], { align: 'center', after: 80 });
@@ -3432,7 +3490,7 @@ function buildDocumentXml(paper, media) {
         body += docxParagraph([docxTextRun(section.name, { bold: true, size: 24 })], { before: 120, after: 70 });
         section.questions.forEach(question => {
             questionNumber += 1;
-            body += docxParagraph([docxTextRun(`${questionNumber}) `, { bold: true }), ...docxInlineFromMarkdown(question.text || '', media)], { after: 50 });
+            body += docxQuestionParagraphs(questionNumber, question.text || '', media);
             body += docxOptionsParagraphs(question, media);
         });
     });
