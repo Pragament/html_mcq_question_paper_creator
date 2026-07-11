@@ -126,6 +126,7 @@ document.addEventListener('paste', handlePaste);
 
 load();
 initEquationModal();
+initGlobalToolbar();
 render();
 
 function load() {
@@ -598,10 +599,13 @@ function renderSectionTabs() {
 
 function renderWorkbench() {
     const section = getActiveSection();
+    const globalToolbar = document.getElementById('globalToolbar');
     if (!section) {
+        if (globalToolbar) globalToolbar.hidden = true;
         els.workbench.innerHTML = `<div class="empty-state"><strong>No section selected</strong>Add a section to start writing questions.</div>`;
         return;
     }
+    if (globalToolbar) globalToolbar.hidden = false;
 
     els.workbench.innerHTML = `
         <div class="workbench-head">
@@ -947,7 +951,10 @@ const updateActiveSelection = () => {
     if (activeEl.id === 'tagsSearchInput' || activeEl.id === 'tagInputField') return;
     
     const key = getEditorKey(activeEl);
-    if (!key) return;
+    if (!key) {
+        updateGlobalToolbarState();
+        return;
+    }
     
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
@@ -961,6 +968,7 @@ const updateActiveSelection = () => {
                 isVisual: true
             };
             lastActiveEditorKey = key;
+            updateGlobalToolbarState();
             return;
         }
     }
@@ -974,6 +982,7 @@ const updateActiveSelection = () => {
             isVisual: false
         };
         lastActiveEditorKey = key;
+        updateGlobalToolbarState();
     }
 };
 
@@ -1007,6 +1016,81 @@ function saveEquationFavorites() {
 
 function saveEquationRecent() {
     localStorage.setItem('school_mcq_paper_studio_recent_formulas', JSON.stringify(equationRecent));
+}
+
+function updateGlobalToolbarState() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const boldBtn = document.getElementById('globalFormatBold');
+    const italicBtn = document.getElementById('globalFormatItalic');
+    const codeBtn = document.getElementById('globalFormatCode');
+    
+    const activeEl = document.activeElement;
+    const key = activeEl ? getEditorKey(activeEl) : null;
+    
+    if (!key) {
+        if (activeEl && activeEl.closest('#globalToolbar')) {
+            return;
+        }
+        if (boldBtn) boldBtn.classList.remove('active');
+        if (italicBtn) italicBtn.classList.remove('active');
+        if (codeBtn) codeBtn.classList.remove('active');
+        return;
+    }
+    
+    const saved = editorSelections[key];
+    if (saved && saved.isVisual) {
+        if (boldBtn) {
+            boldBtn.classList.toggle('active', document.queryCommandState('bold'));
+        }
+        if (italicBtn) {
+            italicBtn.classList.toggle('active', document.queryCommandState('italic'));
+        }
+        
+        const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(key)}"]`);
+        const showingCode = wrapper ? wrapper.classList.contains('show-code') : false;
+        if (codeBtn) {
+            codeBtn.classList.toggle('active', showingCode);
+        }
+    } else if (saved) {
+        if (boldBtn) boldBtn.classList.remove('active');
+        if (italicBtn) italicBtn.classList.remove('active');
+        if (codeBtn) codeBtn.classList.add('active');
+    }
+}
+
+function initGlobalToolbar() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return;
+    const btns = document.querySelectorAll('#globalToolbar .tool-btn');
+    btns.forEach(btn => {
+        btn.addEventListener('mousedown', e => {
+            e.preventDefault();
+        });
+    });
+    
+    const boldBtn = document.getElementById('globalFormatBold');
+    if (boldBtn) {
+        boldBtn.addEventListener('click', () => {
+            if (lastActiveEditorKey) applyFormat(lastActiveEditorKey, 'bold');
+        });
+    }
+    const italicBtn = document.getElementById('globalFormatItalic');
+    if (italicBtn) {
+        italicBtn.addEventListener('click', () => {
+            if (lastActiveEditorKey) applyFormat(lastActiveEditorKey, 'italic');
+        });
+    }
+    const equationBtn = document.getElementById('globalInsertEquation');
+    if (equationBtn) {
+        equationBtn.addEventListener('click', () => {
+            if (lastActiveEditorKey) insertEquation(lastActiveEditorKey);
+        });
+    }
+    const codeBtn = document.getElementById('globalFormatCode');
+    if (codeBtn) {
+        codeBtn.addEventListener('click', () => {
+            if (lastActiveEditorKey) toggleCodeMode(lastActiveEditorKey);
+        });
+    }
 }
 
 function insertEquation(editorId, targetToken = null) {

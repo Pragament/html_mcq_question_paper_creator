@@ -489,7 +489,7 @@ button {
 }
 
 .editor-toolbar {
-    display: inline-flex;
+    display: none !important; /* Hide individual editor toolbars on screen */
     align-items: center;
     gap: 4px;
     justify-content: flex-start;
@@ -2036,4 +2036,60 @@ div[class*="ML__keyboard"] {
 /* Global hidden rule override to normalize display attributes */
 [hidden] {
     display: none !important;
+}
+
+/* Global Formatting Toolbar Styles */
+.global-toolbar {
+    position: sticky;
+    top: -18px; /* Offset the parent workspace padding */
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+    transition: all 0.2s ease;
+}
+
+.global-toolbar .tool-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 30px;
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #ffffff;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-sizing: border-box;
+}
+
+.global-toolbar .tool-btn:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+    border-color: var(--line-strong);
+}
+
+.global-toolbar .tool-btn.active {
+    background: #e2e8f0;
+    color: var(--primary);
+    border-color: #cbd5e1;
+    font-weight: 700;
+}
+
+.global-toolbar .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--line);
+    margin: 0 6px;
 }
