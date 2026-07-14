@@ -2260,3 +2260,225 @@ div[class*="ML__keyboard"] {
 .logo-setup-container.selected .logo-resize-handle {
     display: block;
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   NATIVE EDITOR TABLE  (.editor-table)
+   Tables are direct children of the contenteditable visual editor.
+   No contenteditable="false" wrapper — they are fully native nodes.
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.editor-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+    margin: 10px 0;
+    font-size: 14px;
+    font-family: inherit;
+    position: relative;
+}
+
+.editor-table td,
+.editor-table th {
+    border: 1.5px solid var(--line, #cbd5e1);
+    padding: 7px 11px;
+    min-width: 40px;
+    min-height: 28px;
+    vertical-align: top;
+    word-break: break-word;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.editor-table th {
+    background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+    font-weight: 600;
+    text-align: left;
+}
+
+/* Focused table — blue outline */
+.editor-table.tbl-focused {
+    outline: 2px solid var(--primary, #3b82f6);
+    outline-offset: 2px;
+}
+
+/* Selected cell highlight */
+.editor-table td.cell-selected,
+.editor-table th.cell-selected {
+    background-color: rgba(59, 130, 246, 0.12);
+    outline: 2px solid rgba(59, 130, 246, 0.4);
+    outline-offset: -2px;
+}
+
+/* Hover highlight while not dragging */
+.editor-table td:hover,
+.editor-table th:hover {
+    background-color: rgba(59, 130, 246, 0.05);
+}
+.editor-table th:hover {
+    background-color: rgba(59, 130, 246, 0.08);
+}
+
+/* ── Column resize handle ── */
+/* A 6-px-wide invisible strip at the right edge of every cell */
+.editor-table td::after,
+.editor-table th::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+}
+
+/* Active resize visual feedback */
+.editor-table td.col-resizing,
+.editor-table th.col-resizing {
+    background-color: rgba(59, 130, 246, 0.08);
+    border-right-color: var(--primary, #3b82f6);
+}
+
+/* ── Row resize handle ── */
+/* A 6-px strip at the bottom edge of every cell */
+.editor-table td[data-row-resize]::before,
+.editor-table th[data-row-resize]::before {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    left: 0;
+    width: 100%;
+    height: 6px;
+    cursor: row-resize;
+    z-index: 10;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   FLOATING TABLE TOOLBAR
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+#tableFloatingToolbar {
+    position: fixed;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 5px 8px;
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, #e2e8f0);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08);
+    backdrop-filter: blur(8px);
+    pointer-events: auto;
+    animation: toolbarFadeIn 0.15s ease;
+}
+
+@keyframes toolbarFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.tbl-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 9px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text, #334155);
+    white-space: nowrap;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    font-family: inherit;
+    line-height: 1.4;
+}
+
+.tbl-tool-btn:hover {
+    background: var(--bg, #f8fafc);
+    border-color: var(--line, #e2e8f0);
+    color: var(--primary, #3b82f6);
+}
+
+.tbl-tool-btn.tbl-tool-danger:hover {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #ef4444;
+}
+
+.tbl-tool-sep {
+    display: inline-block;
+    width: 1px;
+    height: 18px;
+    background: var(--line, #e2e8f0);
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   PRINT & EXPORT
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.print-paper-container .editor-table,
+.print-paper-container .editor-table td,
+.print-paper-container .editor-table th {
+    border: 1px solid #000 !important;
+    padding: 5px 9px;
+    font-size: 13px;
+}
+
+.print-paper-container .editor-table th {
+    background-color: #f1f5f9 !important;
+}
+
+/* Hide resize handles in print */
+@media print {
+    .editor-table td::after,
+    .editor-table th::after,
+    .editor-table td::before,
+    .editor-table th::before {
+        display: none !important;
+    }
+    .editor-table.tbl-focused {
+        outline: none !important;
+    }
+    #tableFloatingToolbar {
+        display: none !important;
+    }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   LEGACY .table-token — backward compat for existing saved papers
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.table-token {
+    width: 100%;
+    overflow-x: auto;
+    margin: 12px 0;
+    border-radius: 4px;
+}
+.table-token table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: inherit;
+    font-size: 14px;
+}
+.table-token th, .table-token td {
+    border: 1px solid var(--line);
+    padding: 8px 12px;
+    text-align: left;
+}
+.table-token th {
+    background-color: #f8fafc;
+    font-weight: 600;
+}
+.print-paper-container .table-token th,
+.print-paper-container .table-token td {
+    border: 1px solid #000 !important;
+    padding: 6px 10px;
+}
+.print-paper-container .table-token th {
+    background-color: #f1f5f9 !important;
+}

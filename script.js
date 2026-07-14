@@ -133,6 +133,8 @@ initAddQuestionsModal();
 initDeletePaperModal();
 initWordExportModal();
 initLogoContextMenu();
+initAdvancedEditorModal();
+initTableContextMenu();
 render();
 
 function load() {
@@ -1302,6 +1304,12 @@ function initGlobalToolbar() {
             if (lastActiveEditorKey) insertEquation(lastActiveEditorKey);
         });
     }
+    const tableBtn = document.getElementById('globalInsertTable');
+    if (tableBtn) {
+        tableBtn.addEventListener('click', () => {
+            if (lastActiveEditorKey) openAdvancedEditorModal(lastActiveEditorKey);
+        });
+    }
     const codeBtn = document.getElementById('globalFormatCode');
     if (codeBtn) {
         codeBtn.addEventListener('click', () => {
@@ -1972,6 +1980,9 @@ document.addEventListener('click', e => {
     if (!e.target.closest('#logoContextMenu')) {
         hideLogoContextMenu();
     }
+    if (!e.target.closest('#tableContextMenu')) {
+        hideTableContextMenu();
+    }
     
     // Logo container selection / deselection
     const logoContainer = e.target.closest('#logoSetupContainer');
@@ -1979,6 +1990,15 @@ document.addEventListener('click', e => {
         logoContainer.classList.add('selected');
     } else {
         document.getElementById('logoSetupContainer')?.classList.remove('selected');
+    }
+    
+    // Table selection / deselection
+    const tableToken = e.target.closest('.table-token');
+    if (tableToken) {
+        document.querySelectorAll('.table-token.selected').forEach(t => t.classList.remove('selected'));
+        tableToken.classList.add('selected');
+    } else {
+        document.querySelectorAll('.table-token.selected').forEach(t => t.classList.remove('selected'));
     }
     
     // 4. Check if clicked diagram corner delete button
@@ -2019,8 +2039,25 @@ document.addEventListener('click', e => {
     }
 });
 
-// Context Menu Right-click delegation on .mermaid-token or logo container
+// Context Menu Right-click delegation on .mermaid-token, logo container, or tables
 document.addEventListener('contextmenu', e => {
+    const tableCell = e.target.closest('td, th');
+    if (tableCell) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        activeTableCell = tableCell;
+        
+        const token = tableCell.closest('.table-token');
+        if (token) {
+            document.querySelectorAll('.table-token.selected').forEach(t => t.classList.remove('selected'));
+            token.classList.add('selected');
+        }
+        
+        showTableContextMenu(e.clientX, e.clientY);
+        return;
+    }
+
     const logoContainer = e.target.closest('#logoSetupContainer');
     if (logoContainer) {
         e.preventDefault();
@@ -2100,7 +2137,7 @@ document.addEventListener('dblclick', e => {
     }
 });
 
-// Key listener to delete selected Mermaid diagrams
+// Key listener to delete selected Mermaid diagrams or tables, and handle cell Tab navigation
 document.addEventListener('keydown', e => {
     if (state.isHoveringLogoArea) {
         const paper = getActivePaper();
@@ -2115,7 +2152,47 @@ document.addEventListener('keydown', e => {
             }
         }
     }
+    
+    // Tab / Shift+Tab navigation between table cells
+    if (e.key === 'Tab') {
+        const activeCell = e.target.closest('td, th');
+        if (activeCell) {
+            e.preventDefault();
+            const table = activeCell.closest('table');
+            if (table) {
+                const cells = Array.from(table.querySelectorAll('td, th'));
+                const idx = cells.indexOf(activeCell);
+                let nextIdx = e.shiftKey ? idx - 1 : idx + 1;
+                
+                if (nextIdx >= 0 && nextIdx < cells.length) {
+                    cells[nextIdx].focus();
+                    
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    range.selectNodeContents(cells[nextIdx]);
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+            }
+            return;
+        }
+    }
+
     if (e.key === 'Backspace' || e.key === 'Delete') {
+        const selectedTable = document.querySelector('.table-token.selected');
+        if (selectedTable) {
+            e.preventDefault();
+            const visualEditor = selectedTable.closest('[data-visual-editor]');
+            const editorId = visualEditor?.closest('[data-rich-editor]')?.dataset.editorId;
+            selectedTable.remove();
+            if (visualEditor && editorId) {
+                updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+                save();
+            }
+            return;
+        }
+
         const selectedToken = document.querySelector('.mermaid-token.selected');
         if (selectedToken) {
             e.preventDefault();
@@ -2126,6 +2203,25 @@ document.addEventListener('keydown', e => {
 
 // Centralized document-level mousedown listener (handles both context menu actions and drag resizing)
 document.addEventListener('mousedown', e => {
+    const cell = e.target.closest('td, th');
+    if (cell) {
+        if (cell.style.cursor === 'col-resize') {
+            e.preventDefault();
+            e.stopPropagation();
+            colResizeStartCell = cell;
+            colResizeStartX = e.clientX;
+            colResizeStartWidth = cell.offsetWidth;
+            return;
+        }
+        if (cell.style.cursor === 'row-resize') {
+            e.preventDefault();
+            e.stopPropagation();
+            rowResizeStartCell = cell;
+            rowResizeStartY = e.clientY;
+            rowResizeStartHeight = cell.offsetHeight;
+            return;
+        }
+    }
     // 1. Handle Context Menu "Edit Diagram" Button Click
     const editBtn = e.target.closest('#contextEditDiagram');
     if (editBtn) {
@@ -2723,7 +2819,7 @@ function markdownToVisualHtml(markdown) {
     const source = String(markdown || '');
     if (!source.trim()) return '';
     let html = '';
-    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\*\*([^*]+)\*\*|\*([^*]+)\*|\n/g;
+    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\*\*([^*]+)\*\*|\*([^*]+)\*|\[table:([A-Za-z0-9+/=]+)\]|\n/g;
     let last = 0;
     let match;
     while ((match = tokenRe.exec(source))) {
@@ -2752,6 +2848,25 @@ function markdownToVisualHtml(markdown) {
             html += `<strong>${esc(match[7])}</strong>`;
         } else if (match[8]) {
             html += `<em>${esc(match[8])}</em>`;
+        } else if (match[9]) {
+            // [table:base64] → native <table class="editor-table"> directly in the editor
+            // No contenteditable="false" wrapper — the table is a live native node.
+            try {
+                const tableHtml = decodeURIComponent(escape(atob(match[9])));
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(tableHtml, 'text/html');
+                const tableEl = doc.querySelector('table');
+                if (tableEl) {
+                    tableEl.classList.add('editor-table');
+                    // Ensure table-layout is preserved
+                    if (!tableEl.style.tableLayout) tableEl.style.tableLayout = 'fixed';
+                    html += tableEl.outerHTML;
+                } else {
+                    html += `[table:${esc(match[9])}]`;
+                }
+            } catch (err) {
+                html += `[table:${esc(match[9])}]`;
+            }
         } else {
             html += '<br>';
         }
@@ -2802,6 +2917,35 @@ function nodeToMarkdown(node) {
     }
     if (el.matches('.math-token')) {
         return `\\(${el.dataset.latex || el.textContent || ''}\\)`;
+    }
+    if (el.matches('.table-token')) {
+        // Legacy wrapper (old saved papers) — serialize the inner table
+        const tableEl = el.querySelector('table');
+        if (tableEl) {
+            const clone = tableEl.cloneNode(true);
+            clone.classList.add('editor-table');
+            clone.querySelectorAll('td, th').forEach(cell => {
+                cell.removeAttribute('contenteditable');
+                cell.style.cursor = '';
+            });
+            const liveHtml = clone.outerHTML;
+            const base64Html = btoa(unescape(encodeURIComponent(liveHtml)));
+            return `[table:${base64Html}]`;
+        }
+        return `[table:${el.dataset.table || ''}]`;
+    }
+    if (el.matches('table.editor-table')) {
+        // Native editor table — serialize live DOM to [table:base64]
+        const clone = el.cloneNode(true);
+        clone.classList.remove('tbl-focused');
+        clone.querySelectorAll('td, th').forEach(cell => {
+            cell.classList.remove('cell-selected', 'col-resizing');
+            cell.removeAttribute('contenteditable');
+            cell.style.cursor = '';
+        });
+        const liveHtml = clone.outerHTML;
+        const base64Html = btoa(unescape(encodeURIComponent(liveHtml)));
+        return `[table:${base64Html}]`;
     }
     if (el.matches('.mermaid-token')) {
         const png = el.dataset.png || '';
@@ -3416,6 +3560,693 @@ async function pasteLogoFromClipboard() {
     }
 }
 
+let activeAdvancedEditorId = null;
+// Single persistent editor instance – created once, never destroyed between open/close cycles.
+let activeTuiEditorInstance = null;
+let tuiEditorReady = false; // true once the instance has been successfully created
+
+function loadToastUI() {
+    return new Promise((resolve, reject) => {
+        if (window.toastui) {
+            // Scripts already loaded – resolve immediately
+            resolve();
+            return;
+        }
+
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://uicdn.toast.com/editor/latest/toastui-editor.min.css';
+        document.head.appendChild(link);
+
+        const script = document.createElement('script');
+        script.src = 'https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js';
+        script.onload = () => {
+            if (window.toastui) {
+                console.log('[AdvancedEditor] Toast UI scripts loaded successfully.');
+                resolve();
+            } else {
+                reject(new Error('Toast UI loaded but window.toastui is undefined'));
+            }
+        };
+        script.onerror = () => reject(new Error('Toast UI script failed to fetch from CDN'));
+        document.body.appendChild(script);
+    });
+}
+
+/**
+ * Creates the single persistent Toast UI Editor instance inside #tuiEditorContainer.
+ * Must be called ONCE after loadToastUI() resolves.
+ * Subsequent open/close cycles reuse this instance.
+ */
+function createTuiEditorInstance() {
+    const container = document.getElementById('tuiEditorContainer');
+    if (!container) {
+        console.error('[AdvancedEditor] #tuiEditorContainer not found in DOM.');
+        return;
+    }
+    if (activeTuiEditorInstance) {
+        console.log('[AdvancedEditor] Editor instance already exists – skipping creation.');
+        return;
+    }
+
+    try {
+        console.log('[AdvancedEditor] Creating persistent editor instance…');
+        activeTuiEditorInstance = new window.toastui.Editor({
+            el: container,
+            height: '100%',
+            initialEditType: 'wysiwyg',
+            previewStyle: 'vertical',
+            toolbarItems: [
+                ['heading', 'bold', 'italic'],
+                ['ul', 'ol'],
+                ['table'],
+                ['code', 'codeblock']
+            ]
+        });
+        tuiEditorReady = true;
+        console.log('[AdvancedEditor] Editor instance created successfully.');
+    } catch (err) {
+        console.error('[AdvancedEditor] Initialization error:', err);
+        activeTuiEditorInstance = null;
+        tuiEditorReady = false;
+    }
+}
+
+function openAdvancedEditorModal(editorId) {
+    console.log('[AdvancedEditor] Modal opened. editorId =', editorId);
+    hideContextMenu();
+    activeAdvancedEditorId = editorId || lastActiveEditorKey;
+
+    // ✅ Suppress blur → render() cycle while the modal is open.
+    // The visual editor's blur handler checks this flag; without it, opening
+    // the modal shifts focus away → blur fires → render() runs → the entire
+    // workbench DOM is rebuilt → savedRange points to destroyed nodes →
+    // table is inserted at the wrong position or not at all.
+    isEquationModalOpen = true;
+
+    const targetKey = activeAdvancedEditorId;
+    const saved = editorSelections[targetKey];
+    if (saved) {
+        savedRange = saved.isVisual ? saved.range : null;
+        savedSelectionStart = !saved.isVisual ? saved.selectionStart : null;
+        savedSelectionEnd = !saved.isVisual ? saved.selectionEnd : null;
+    } else {
+        savedRange = null;
+        savedSelectionStart = null;
+        savedSelectionEnd = null;
+    }
+
+    const modal = document.getElementById('advancedEditorModal');
+    if (!modal) return;
+
+    const validation = document.getElementById('advancedEditorValidationMessage');
+    if (validation) {
+        validation.textContent = '';
+        validation.hidden = true;
+    }
+
+    if (tuiEditorReady && activeTuiEditorInstance) {
+        // ✅ Fast path: editor already alive – just reset content and show modal
+        console.log('[AdvancedEditor] Reusing existing editor instance.');
+        try {
+            activeTuiEditorInstance.setMarkdown('', false);
+        } catch (e) {
+            console.warn('[AdvancedEditor] setMarkdown failed on reuse:', e);
+        }
+        // Dismiss any stale toast
+        if (els.toast && els.toast.classList.contains('show')) {
+            els.toast.classList.remove('show');
+            els.toast.style.pointerEvents = 'none';
+        }
+        modal.removeAttribute('hidden');
+        return;
+    }
+
+    // First-time path: scripts not yet loaded, or instance creation failed previously
+    toast('Loading Advanced Editor…');
+
+    loadToastUI().then(() => {
+        createTuiEditorInstance();
+
+        if (!tuiEditorReady) {
+            toast('Failed to load Advanced Editor. Please check your internet connection.');
+            return;
+        }
+
+        // Dismiss loading toast
+        if (els.toast && els.toast.textContent.includes('Loading')) {
+            els.toast.classList.remove('show');
+            els.toast.style.pointerEvents = 'none';
+        }
+
+        modal.removeAttribute('hidden');
+        console.log('[AdvancedEditor] Modal visible.');
+    }).catch(err => {
+        console.error('[AdvancedEditor] Initialization error:', err);
+        toast('Failed to load Advanced Editor. Please check your internet connection.');
+    });
+}
+
+function closeAdvancedEditorModal() {
+    console.log('[AdvancedEditor] Modal closed.');
+    const modal = document.getElementById('advancedEditorModal');
+    if (modal) {
+        modal.setAttribute('hidden', 'true');
+    }
+    // NOTE: Do NOT destroy the editor instance here.
+    // The persistent instance is kept alive so reopening is instantaneous and reliable.
+
+    // Re-enable the blur → render() cycle now that the modal is gone.
+    isEquationModalOpen = false;
+
+    const editorId = activeAdvancedEditorId;
+    if (editorId) {
+        const saved = editorSelections[editorId];
+        if (saved && saved.element) {
+            saved.element.focus();
+        } else {
+            const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+            if (wrapper) {
+                const visual = wrapper.querySelector('[data-visual-editor]');
+                if (visual && !wrapper.classList.contains('show-code')) {
+                    visual.focus();
+                } else {
+                    const code = wrapper.querySelector('[data-code-editor]');
+                    code?.focus();
+                }
+            }
+        }
+    }
+
+    activeAdvancedEditorId = null;
+    savedRange = null;
+    savedSelectionStart = null;
+    savedSelectionEnd = null;
+}
+
+// Destroy the persistent editor only when the whole page is unloaded
+window.addEventListener('beforeunload', () => {
+    if (activeTuiEditorInstance) {
+        console.log('[AdvancedEditor] Page unloading – destroying editor instance.');
+        try { activeTuiEditorInstance.destroy(); } catch (e) { /* ignore */ }
+        activeTuiEditorInstance = null;
+        tuiEditorReady = false;
+    }
+});
+
+function initAdvancedEditorModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('advancedEditorModal');
+    const closeBtn = document.getElementById('closeAdvancedEditorModalBtn');
+    const cancelBtn = document.getElementById('cancelAdvancedEditorModalBtn');
+    const confirmBtn = document.getElementById('confirmAdvancedEditorModalBtn');
+
+    if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
+
+    // Eagerly load Toast UI scripts in the background so the first open is instant.
+    // The editor instance itself is created inside openAdvancedEditorModal on first call.
+    loadToastUI()
+        .then(() => {
+            console.log('[AdvancedEditor] Toast UI pre-loaded in background.');
+            // Create the persistent instance now so the first open is instant.
+            createTuiEditorInstance();
+        })
+        .catch(err => {
+            // Non-fatal: the editor will retry when the user actually clicks Table.
+            console.warn('[AdvancedEditor] Background pre-load failed (likely offline):', err.message);
+        });
+    
+    closeBtn.addEventListener('click', closeAdvancedEditorModal);
+    cancelBtn.addEventListener('click', closeAdvancedEditorModal);
+    
+    let mousedownTarget = null;
+    modal.addEventListener('mousedown', e => {
+        mousedownTarget = e.target;
+    });
+    modal.addEventListener('click', e => {
+        const isContent = e.target.closest('.equation-modal-content');
+        if (e.target === modal && mousedownTarget === modal && !isContent) {
+            closeAdvancedEditorModal();
+        }
+        mousedownTarget = null;
+    });
+    
+    confirmBtn.addEventListener('click', () => {
+        if (!activeTuiEditorInstance) {
+            closeAdvancedEditorModal();
+            return;
+        }
+
+        const markdown = activeTuiEditorInstance.getMarkdown().trim();
+        const html = activeTuiEditorInstance.getHTML().trim();
+
+        if (!markdown) {
+            closeAdvancedEditorModal();
+            return;
+        }
+
+        const editorId = activeAdvancedEditorId;
+
+        // Build the table HTML with cells explicitly editable
+        const parser = new DOMParser();
+        const parsedDoc = parser.parseFromString(html, 'text/html');
+        const tableEl = parsedDoc.querySelector('table');
+        if (tableEl) {
+            tableEl.querySelectorAll('td, th').forEach(cell => {
+                cell.setAttribute('contenteditable', 'true');
+            });
+        }
+        const editableHtml = parsedDoc.body.innerHTML;
+        const base64Html = btoa(unescape(encodeURIComponent(editableHtml)));
+        const token = `[table:${base64Html}]`;
+
+        // ✅ Use savedRange / savedElement captured at modal-open time
+        // so cursor position is preserved even after focus moves to Toast UI.
+        const visualEditorEl = editorSelections[editorId]?.element ||
+            document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"] [data-visual-editor]`);
+        const isVisualMode = !document.querySelector(
+            `[data-rich-editor][data-editor-id="${cssEscape(editorId)}"].show-code`
+        );
+
+        if (savedRange && visualEditorEl && isVisualMode) {
+            // ✅ Preferred path: insert native editor-table at the exact saved cursor position.
+            // No contenteditable="false" wrapper — the table lives directly in the editor.
+            const parser = new DOMParser();
+            const parsedDoc = parser.parseFromString(html, 'text/html');
+            const tableEl = parsedDoc.querySelector('table');
+            if (tableEl) {
+                tableEl.classList.add('editor-table');
+                tableEl.style.tableLayout = 'fixed';
+                tableEl.querySelectorAll('td, th').forEach(cell => {
+                    cell.removeAttribute('contenteditable');
+                });
+                insertHtmlIntoVisualEditor(visualEditorEl, tableEl.outerHTML, savedRange);
+                updateFieldFromEditor(editorId, markdownFromVisual(visualEditorEl));
+                // Focus first cell for immediate editing
+                const inserted = visualEditorEl.querySelector('table.editor-table td, table.editor-table th');
+                if (inserted) inserted.focus();
+            }
+        } else if (savedSelectionStart !== null) {
+            // Code-editor / textarea path
+            const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+            const code = wrapper?.querySelector('[data-code-editor]');
+            if (code) {
+                insertAtCursor(code, token, true, savedSelectionStart, savedSelectionEnd);
+                code.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        } else if (visualEditorEl && isVisualMode) {
+            // Fallback: append at end
+            const parser = new DOMParser();
+            const parsedDoc = parser.parseFromString(html, 'text/html');
+            const tableEl = parsedDoc.querySelector('table');
+            if (tableEl) {
+                tableEl.classList.add('editor-table');
+                tableEl.style.tableLayout = 'fixed';
+                tableEl.querySelectorAll('td, th').forEach(cell => cell.removeAttribute('contenteditable'));
+                insertHtmlIntoVisualEditor(visualEditorEl, tableEl.outerHTML, null);
+                updateFieldFromEditor(editorId, markdownFromVisual(visualEditorEl));
+            }
+        } else {
+            // Last resort: token in code editor
+            const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+            const code = wrapper?.querySelector('[data-code-editor]');
+            if (code) {
+                insertAtCursor(code, token, true, code.selectionStart, code.selectionEnd);
+                code.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
+
+        closeAdvancedEditorModal();
+        // Re-render the workbench so the inserted table is visible and
+        // the card reflects the updated question data.
+        render();
+    });
+}
+
+let activeTableCell = null;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NATIVE TABLE RESIZE ENGINE
+// Column resize: drag the right edge pseudo-element (::after) of any td/th.
+// Row resize   : drag the bottom edge of any tr.
+// Both are handled via global mousedown → mousemove → mouseup.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+let _colResizeCell = null;   // the <td>/<th> whose right border we’re dragging
+let _colResizeX    = 0;      // clientX at drag start
+let _colResizeW    = 0;      // cell width at drag start
+let _rowResizeRow  = null;   // the <tr> whose bottom we’re dragging
+let _rowResizeY    = 0;      // clientY at drag start
+let _rowResizeH    = 0;      // row height at drag start
+const COL_MIN_W    = 40;     // px
+const ROW_MIN_H    = 24;     // px
+
+// Helper: is the pointer within the 8px right-edge resize zone of a cell?
+function _isColResizeZone(cell, clientX) {
+    const rect = cell.getBoundingClientRect();
+    return clientX >= rect.right - 8 && clientX <= rect.right + 4;
+}
+
+// Helper: is the pointer within the 8px bottom-edge resize zone of a row?
+function _isRowResizeZone(tr, clientY) {
+    const rect = tr.getBoundingClientRect();
+    return clientY >= rect.bottom - 8 && clientY <= rect.bottom + 4;
+}
+
+document.addEventListener('mousemove', e => {
+    // During a column drag
+    if (_colResizeCell) {
+        e.preventDefault();
+        const dx = e.clientX - _colResizeX;
+        const newW = Math.max(COL_MIN_W, _colResizeW + dx);
+        _colResizeCell.style.width = newW + 'px';
+        // Ensure the table uses fixed layout so widths are respected
+        const tbl = _colResizeCell.closest('table');
+        if (tbl) tbl.style.tableLayout = 'fixed';
+        return;
+    }
+    // During a row drag
+    if (_rowResizeRow) {
+        e.preventDefault();
+        const dy = e.clientY - _rowResizeY;
+        const newH = Math.max(ROW_MIN_H, _rowResizeH + dy);
+        _rowResizeRow.style.height = newH + 'px';
+        // Also fix each cell height so it doesn’t collapse
+        Array.from(_rowResizeRow.cells).forEach(c => { c.style.height = newH + 'px'; });
+        return;
+    }
+    // Update cursor to col-resize / row-resize when hovering near edges
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (cell && cell.closest('table.editor-table') && !e.buttons) {
+        if (_isColResizeZone(cell, e.clientX)) {
+            cell.style.cursor = 'col-resize';
+            return;
+        }
+        cell.style.cursor = '';
+    }
+    const tr = e.target.closest && e.target.closest('tr');
+    if (tr && tr.closest('table.editor-table') && !e.buttons) {
+        if (_isRowResizeZone(tr, e.clientY)) {
+            tr.style.cursor = 'row-resize';
+        } else {
+            tr.style.cursor = '';
+        }
+    }
+});
+
+document.addEventListener('mousedown', e => {
+    // —— Column resize start ——
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (cell && cell.closest('table.editor-table')) {
+        if (_isColResizeZone(cell, e.clientX)) {
+            e.preventDefault();
+            _colResizeCell = cell;
+            _colResizeX    = e.clientX;
+            _colResizeW    = cell.offsetWidth;
+            cell.classList.add('col-resizing');
+            return;
+        }
+    }
+    // —— Row resize start ——
+    const tr = e.target.closest && e.target.closest('tr');
+    if (tr && tr.closest('table.editor-table')) {
+        if (_isRowResizeZone(tr, e.clientY)) {
+            e.preventDefault();
+            _rowResizeRow = tr;
+            _rowResizeY   = e.clientY;
+            _rowResizeH   = tr.offsetHeight;
+            return;
+        }
+    }
+}, true);
+
+document.addEventListener('mouseup', e => {
+    if (_colResizeCell) {
+        _colResizeCell.classList.remove('col-resizing');
+        const tbl = _colResizeCell.closest('table.editor-table');
+        if (tbl) syncTableToState(tbl);
+        _colResizeCell = null;
+    }
+    if (_rowResizeRow) {
+        const tbl = _rowResizeRow.closest('table.editor-table');
+        if (tbl) syncTableToState(tbl);
+        _rowResizeRow = null;
+    }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RIGHT-CLICK context menu on editor-table cells
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+document.addEventListener('contextmenu', e => {
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (!cell || !cell.closest('table.editor-table')) return;
+    e.preventDefault();
+    activeTableCell = cell;
+    showTableContextMenu(e.clientX, e.clientY);
+}, true);
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('#tableContextMenu')) hideTableContextMenu();
+    if (!e.target.closest('#tableFloatingToolbar') && !e.target.closest('table.editor-table')) {
+        hideTableFloatingToolbar();
+    }
+    // Focused table styling
+    const tbl = e.target.closest && e.target.closest('table.editor-table');
+    document.querySelectorAll('table.editor-table').forEach(t => t.classList.remove('tbl-focused'));
+    if (tbl) tbl.classList.add('tbl-focused');
+});
+
+document.addEventListener('keydown', e => {
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (!cell || !cell.closest('table.editor-table')) return;
+    activeTableCell = cell;
+    // Tab / Shift+Tab navigation between cells
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        const tbl = cell.closest('table');
+        const cells = Array.from(tbl.querySelectorAll('td, th'));
+        const idx = cells.indexOf(cell);
+        const next = e.shiftKey ? cells[idx - 1] : cells[idx + 1];
+        if (next) {
+            next.focus();
+        } else if (!e.shiftKey) {
+            // Tab on last cell → add a new row
+            tableInsertRowBelow();
+            const newCells = Array.from(tbl.querySelectorAll('td, th'));
+            newCells[idx + 1]?.focus();
+        }
+    }
+}, true);
+
+function showTableContextMenu(x, y) {
+    const menu = document.getElementById('tableContextMenu');
+    if (!menu) return;
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.style.display = 'flex';
+    menu.removeAttribute('hidden');
+}
+
+function hideTableContextMenu() {
+    const menu = document.getElementById('tableContextMenu');
+    if (!menu) return;
+    menu.setAttribute('hidden', 'true');
+    menu.style.display = 'none';
+}
+
+// syncTableToState: serializes a live native editor-table back to state.
+// Called after any structural change (resize, add/delete row/col, merge, split).
+function syncTableToState(table) {
+    if (!table || !document.contains(table)) return;
+    const visualEditor = table.closest('[data-visual-editor]');
+    const editorId = visualEditor?.closest('[data-rich-editor]')?.dataset.editorId;
+    if (visualEditor && editorId) {
+        updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+    }
+}
+
+// Legacy alias kept for any remaining callers
+function saveAndSyncTable(table) { syncTableToState(table); }
+
+function tableInsertRowAbove() {
+    if (!activeTableCell) return;
+    const tr = activeTableCell.closest('tr');
+    const table = tr?.closest('table');
+    if (!tr || !table) return;
+    const newTr = document.createElement('tr');
+    const cellCount = tr.cells.length;
+    for (let i = 0; i < cellCount; i++) {
+        const newCell = document.createElement(tr.cells[i].tagName.toLowerCase());
+        newCell.innerHTML = '\u00a0'; // non-breaking space placeholder
+        newTr.appendChild(newCell);
+    }
+    tr.parentNode.insertBefore(newTr, tr);
+    syncTableToState(table);
+}
+
+function tableInsertRowBelow() {
+    if (!activeTableCell) return;
+    const tr = activeTableCell.closest('tr');
+    const table = tr?.closest('table');
+    if (!tr || !table) return;
+    const newTr = document.createElement('tr');
+    const cellCount = tr.cells.length;
+    for (let i = 0; i < cellCount; i++) {
+        const newCell = document.createElement('td');
+        newCell.innerHTML = '\u00a0';
+        newTr.appendChild(newCell);
+    }
+    tr.parentNode.insertBefore(newTr, tr.nextSibling);
+    newTr.cells[0]?.focus();
+    syncTableToState(table);
+}
+
+function tableInsertColLeft() {
+    if (!activeTableCell) return;
+    const cellIndex = activeTableCell.cellIndex;
+    const table = activeTableCell.closest('table');
+    if (!table) return;
+    Array.from(table.rows).forEach(row => {
+        const newCell = document.createElement(row.cells[cellIndex]?.tagName.toLowerCase() || 'td');
+        newCell.innerHTML = '\u00a0';
+        row.insertBefore(newCell, row.cells[cellIndex]);
+    });
+    syncTableToState(table);
+}
+
+function tableInsertColRight() {
+    if (!activeTableCell) return;
+    const cellIndex = activeTableCell.cellIndex;
+    const table = activeTableCell.closest('table');
+    if (!table) return;
+    Array.from(table.rows).forEach(row => {
+        const newCell = document.createElement('td');
+        newCell.innerHTML = '\u00a0';
+        row.insertBefore(newCell, row.cells[cellIndex] ? row.cells[cellIndex].nextSibling : null);
+    });
+    syncTableToState(table);
+}
+
+function tableDeleteRow() {
+    if (!activeTableCell) return;
+    const tr = activeTableCell.closest('tr');
+    const table = tr?.closest('table');
+    if (!tr || !table) return;
+    const sibling = tr.nextElementSibling || tr.previousElementSibling;
+    tr.remove();
+    if (sibling) sibling.cells[0]?.focus();
+    syncTableToState(table);
+}
+
+function tableDeleteCol() {
+    if (!activeTableCell) return;
+    const cellIndex = activeTableCell.cellIndex;
+    const table = activeTableCell.closest('table');
+    if (!table) return;
+    Array.from(table.rows).forEach(row => {
+        if (row.cells[cellIndex]) row.cells[cellIndex].remove();
+    });
+    syncTableToState(table);
+}
+
+function tableDeleteTable() {
+    if (!activeTableCell) return;
+    // Support both native editor-table and legacy .table-token wrappers
+    const table = activeTableCell.closest('table.editor-table');
+    const token = activeTableCell.closest('.table-token');
+    const visualEditor = activeTableCell.closest('[data-visual-editor]');
+    const editorId = visualEditor?.closest('[data-rich-editor]')?.dataset.editorId;
+    if (table) {
+        table.remove();
+    } else if (token) {
+        token.remove();
+    }
+    if (visualEditor && editorId) {
+        updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+    }
+    hideTableFloatingToolbar();
+    activeTableCell = null;
+}
+
+function tableMergeCells() {
+    if (!activeTableCell) return;
+    const cols = parseInt(prompt('Merge how many columns? (colspan)', activeTableCell.colSpan || 1), 10);
+    const rows = parseInt(prompt('Merge how many rows? (rowspan)', activeTableCell.rowSpan || 1), 10);
+    if (!isNaN(cols) && cols > 0) activeTableCell.colSpan = cols;
+    if (!isNaN(rows) && rows > 0) activeTableCell.rowSpan = rows;
+    syncTableToState(activeTableCell.closest('table'));
+}
+
+function tableSplitCells() {
+    if (!activeTableCell) return;
+    activeTableCell.colSpan = 1;
+    activeTableCell.rowSpan = 1;
+    syncTableToState(activeTableCell.closest('table'));
+}
+
+function tableEqualCols() {
+    if (!activeTableCell) return;
+    const table = activeTableCell.closest('table.editor-table');
+    if (!table) return;
+    const cols = table.rows[0]?.cells.length || 0;
+    if (!cols) return;
+    const w = Math.floor(100 / cols);
+    Array.from(table.querySelectorAll('th, td')).forEach(c => { c.style.width = w + '%'; });
+    table.style.tableLayout = 'fixed';
+    syncTableToState(table);
+}
+
+function initTableContextMenu() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    
+    document.getElementById('tableContextInsertRowAbove')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertRowAbove();
+    });
+    document.getElementById('tableContextInsertRowBelow')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertRowBelow();
+    });
+    document.getElementById('tableContextInsertColLeft')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertColLeft();
+    });
+    document.getElementById('tableContextInsertColRight')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertColRight();
+    });
+    document.getElementById('tableContextDeleteRow')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableDeleteRow();
+    });
+    document.getElementById('tableContextDeleteCol')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableDeleteCol();
+    });
+    document.getElementById('tableContextDeleteTable')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableDeleteTable();
+    });
+    document.getElementById('tableContextMerge')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableMergeCells();
+    });
+    document.getElementById('tableContextSplit')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableSplitCells();
+    });
+}
+
 function duplicateSection() {
     const paper = getActivePaper();
     const section = getActiveSection();
@@ -3905,6 +4736,76 @@ function buildDocumentRels(media) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${imageRels}</Relationships>`;
 }
 
+function docxTableFromBase64Html(base64Html) {
+    try {
+        const html = decodeURIComponent(escape(atob(base64Html)));
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const tableEl = doc.querySelector('table');
+        if (!tableEl) return '';
+        
+        const rows = tableEl.querySelectorAll('tr');
+        let rowsXml = '';
+        
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('th, td');
+            let cellsXml = '';
+            
+            cells.forEach(cell => {
+                const cellText = cell.textContent || '';
+                const textRuns = docxTextRunsFromMarkdownText(cellText);
+                
+                const cellCount = cells.length;
+                const totalWidth = 9000;
+                const cellWidth = Math.floor(totalWidth / cellCount);
+                
+                const isHeader = cell.tagName.toLowerCase() === 'th';
+                const cellBg = isHeader ? '<w:shd w:val="clear" w:color="auto" w:fill="F1F5F9"/>' : '';
+                
+                cellsXml += `
+                    <w:tc>
+                        <w:tcPr>
+                            <w:tcW w:w="${cellWidth}" w:type="dxa"/>
+                            ${cellBg}
+                            <w:tcBorders>
+                                <w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                                <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                                <w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                                <w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                            </w:tcBorders>
+                            <w:vAlign w:val="center"/>
+                        </w:tcPr>
+                        ${docxParagraph(textRuns, { before: 80, after: 80 })}
+                    </w:tc>
+                `;
+            });
+            
+            rowsXml += `<w:tr>${cellsXml}</w:tr>`;
+        });
+        
+        return `
+            <w:tbl>
+                <w:tblPr>
+                    <w:tblW w:w="9000" w:type="dxa"/>
+                    <w:tblBorders>
+                        <w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                    </w:tblBorders>
+                    <w:tblLayout w:type="fixed"/>
+                </w:tblPr>
+                ${rowsXml}
+            </w:tbl>
+        `;
+    } catch (err) {
+        console.error("Error generating docx table:", err);
+        return '';
+    }
+}
+
 function docxQuestionParagraphs(questionNumber, markdown, media) {
     const segments = parseDocxMarkdown(markdown);
     let xml = '';
@@ -3956,6 +4857,10 @@ function docxQuestionParagraphs(questionNumber, markdown, media) {
         } else if (segment.type === 'mermaid') {
             commitParagraph();
             xml += docxParagraph([docxTextRun('[Mermaid Diagram]', { italic: true })], { after: 50 });
+        } else if (segment.type === 'table') {
+            commitParagraph();
+            xml += docxTableFromBase64Html(segment.base64Html);
+            isFirstParagraph = false;
         }
     });
     
@@ -4193,7 +5098,7 @@ function docxInlineFromMarkdown(markdown, media) {
 function parseDocxMarkdown(markdown) {
     const source = String(markdown || '');
     const segments = [];
-    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]/g;
+    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\[table:([A-Za-z0-9+/=]+)\]/g;
     let last = 0;
     let match;
     while ((match = tokenRe.exec(source))) {
@@ -4222,6 +5127,8 @@ function parseDocxMarkdown(markdown) {
             } else {
                 segments.push({ type: 'mermaid', base64: code });
             }
+        } else if (match[7]) {
+            segments.push({ type: 'table', base64Html: match[7] });
         }
         last = tokenRe.lastIndex;
     }
@@ -4658,10 +5565,30 @@ function renderMathSoon() {
 }
 
 function toast(message) {
-    els.toast.textContent = message;
+    if (!els.toast) return;
+    // Clear duplicates or consecutive repeats
+    if (els.toast.classList.contains('show') && els.toast.textContent.includes(message)) {
+        return;
+    }
+    
+    els.toast.innerHTML = `${message} <span class="toast-close" style="margin-left: 10px; cursor: pointer; font-weight: bold; opacity: 0.8; padding: 2px 6px;">&times;</span>`;
     els.toast.classList.add('show');
+    els.toast.style.pointerEvents = 'auto';
+    
+    const closeBtn = els.toast.querySelector('.toast-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            els.toast.classList.remove('show');
+            els.toast.style.pointerEvents = 'none';
+        });
+    }
+    
     clearTimeout(els.toast._timer);
-    els.toast._timer = setTimeout(() => els.toast.classList.remove('show'), 2200);
+    els.toast._timer = setTimeout(() => {
+        els.toast.classList.remove('show');
+        els.toast.style.pointerEvents = 'none';
+    }, 4000);
 }
 
 function deepCopy(value) {

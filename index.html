@@ -299,6 +299,7 @@
                 <button type="button" class="tool-btn" id="globalFormatItalic" title="Italic"><i>I</i></button>
                 <div class="toolbar-divider"></div>
                 <button type="button" class="tool-btn" id="globalInsertEquation" title="Insert Equation">∑</button>
+                <button type="button" class="tool-btn" id="globalInsertTable" title="Insert Table">Table</button>
                 <button type="button" class="tool-btn" id="globalFormatCode" title="Code">Code</button>
             </div>
             <section class="question-workbench" id="questionWorkbench"></section>
@@ -424,6 +425,24 @@
         </div>
     </div>
 
+    <!-- Advanced Editor (Toast UI) Modal -->
+    <div class="modal-overlay" id="advancedEditorModal" hidden>
+        <div class="equation-modal-content" style="max-width: 800px; height: 600px; display: flex; flex-direction: column;">
+            <div class="equation-modal-header">
+                <h2>Advanced Editor (Tables & Lists)</h2>
+                <button type="button" class="modal-close-btn" id="closeAdvancedEditorModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="equation-modal-body" style="flex: 1; display: flex; flex-direction: column; padding: 16px; min-height: 0;">
+                <div id="tuiEditorContainer" style="flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 8px;"></div>
+                <div class="validation-message" id="advancedEditorValidationMessage" style="color: #ef4444; font-size: 13px; font-weight: 500; margin-top: 12px;" hidden></div>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelAdvancedEditorModalBtn">Cancel</button>
+                <button type="button" class="btn primary" id="confirmAdvancedEditorModalBtn">Insert Content</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Delete Paper Confirmation Modal -->
     <div class="modal-overlay" id="deletePaperModal" hidden>
         <div class="section-modal-content">
@@ -486,8 +505,40 @@
         <button type="button" class="context-menu-item delete" id="logoContextDelete">🗑️ Delete Logo</button>
     </div>
 
+    <!-- Custom context menu for Tables -->
+    <div class="custom-context-menu" id="tableContextMenu" hidden>
+        <button type="button" class="context-menu-item" id="tableContextInsertRowAbove">➕ Insert Row Above</button>
+        <button type="button" class="context-menu-item" id="tableContextInsertRowBelow">➕ Insert Row Below</button>
+        <button type="button" class="context-menu-item" id="tableContextInsertColLeft">➕ Insert Column Left</button>
+        <button type="button" class="context-menu-item" id="tableContextInsertColRight">➕ Insert Column Right</button>
+        <div class="toolbar-divider" style="margin: 4px 0; height: 1px; background: var(--line);"></div>
+        <button type="button" class="context-menu-item delete" id="tableContextDeleteRow">🗑️ Delete Row</button>
+        <button type="button" class="context-menu-item delete" id="tableContextDeleteCol">🗑️ Delete Column</button>
+        <button type="button" class="context-menu-item delete" id="tableContextDeleteTable">🗑️ Delete Table</button>
+        <div class="toolbar-divider" style="margin: 4px 0; height: 1px; background: var(--line);"></div>
+        <button type="button" class="context-menu-item" id="tableContextMerge">🥞 Merge Cells</button>
+        <button type="button" class="context-menu-item" id="tableContextSplit">🥞 Split Cells</button>
+    </div>
+
     <div id="printPaperContainer" class="print-paper-container"></div>
     <input type="file" id="fileInput" accept="application/json,.json" hidden />
+    <!-- Floating Table Toolbar – shown whenever cursor is inside an editor-table -->
+    <div id="tableFloatingToolbar" hidden>
+        <button type="button" class="tbl-tool-btn" id="tblToolRowAbove" title="Add Row Above">⬆ Row</button>
+        <button type="button" class="tbl-tool-btn" id="tblToolRowBelow" title="Add Row Below">⬇ Row</button>
+        <button type="button" class="tbl-tool-btn tbl-tool-danger" id="tblToolDelRow" title="Delete Row">✕ Row</button>
+        <span class="tbl-tool-sep"></span>
+        <button type="button" class="tbl-tool-btn" id="tblToolColLeft" title="Add Column Left">⬅ Col</button>
+        <button type="button" class="tbl-tool-btn" id="tblToolColRight" title="Add Column Right">➡ Col</button>
+        <button type="button" class="tbl-tool-btn tbl-tool-danger" id="tblToolDelCol" title="Delete Column">✕ Col</button>
+        <span class="tbl-tool-sep"></span>
+        <button type="button" class="tbl-tool-btn" id="tblToolMerge" title="Merge Cells">⊞ Merge</button>
+        <button type="button" class="tbl-tool-btn" id="tblToolSplit" title="Split Cells">⊟ Split</button>
+        <span class="tbl-tool-sep"></span>
+        <button type="button" class="tbl-tool-btn" id="tblToolEqualCols" title="Equal Column Widths">≡ Cols</button>
+        <button type="button" class="tbl-tool-btn tbl-tool-danger" id="tblToolDeleteTable" title="Delete Table">🗑 Table</button>
+    </div>
+
     <div class="toast" id="toast"></div>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script src="https://unpkg.com/mathlive"></script>
