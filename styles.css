@@ -203,25 +203,35 @@ button {
     padding: 10px;
 }
 
-.paper-row {
-    width: 100%;
-    text-align: left;
-    border: 1px solid transparent;
-    background: transparent;
+.paper-row-container {
+    position: relative;
+    display: flex;
+    align-items: center;
     border-radius: 8px;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+}
+
+.paper-row-container:hover {
+    background: #f3f7fb;
+}
+
+.paper-row-container.active {
+    background: var(--primary-soft);
+    border-color: #9dc4e1;
+}
+
+.paper-row {
+    flex-grow: 1;
+    text-align: left;
+    border: none;
+    background: transparent;
     padding: 10px;
     display: grid;
     gap: 5px;
     color: var(--text);
-}
-
-.paper-row:hover {
-    background: #f3f7fb;
-}
-
-.paper-row.active {
-    background: var(--primary-soft);
-    border-color: #9dc4e1;
+    cursor: pointer;
+    overflow: hidden;
 }
 
 .paper-row strong {
@@ -235,6 +245,63 @@ button {
 .paper-row span {
     color: var(--muted);
     font-size: 12px;
+}
+
+.paper-menu-btn {
+    border: none;
+    background: transparent;
+    font-size: 18px;
+    color: var(--muted);
+    padding: 8px 12px;
+    cursor: pointer;
+    border-radius: 0 8px 8px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+}
+
+.paper-menu-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text);
+}
+
+.paper-dropdown-menu {
+    position: absolute;
+    right: 10px;
+    top: 36px;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1000;
+    min-width: 110px;
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+}
+
+.paper-dropdown-menu .menu-item {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    width: 100%;
+}
+
+.paper-dropdown-menu .menu-item:hover {
+    background: #f3f7fb;
+}
+
+.paper-dropdown-menu .menu-item.danger {
+    color: #ef4444;
+}
+
+.paper-dropdown-menu .menu-item.danger:hover {
+    background: #fef2f2;
 }
 
 .workspace {
@@ -467,6 +534,13 @@ button {
     display: flex;
     gap: 6px;
     align-items: center;
+}
+
+.question-tools-column {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
 }
 
 .editor {
@@ -2092,4 +2166,411 @@ div[class*="ML__keyboard"] {
     height: 18px;
     background: var(--line);
     margin: 0 6px;
+}
+
+/* Section Creation Modal Styles */
+.section-modal-content {
+    background: #fff;
+    width: 90%;
+    max-width: 440px;
+    border-radius: 12px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.section-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+}
+
+.section-modal-header h2 {
+    font-size: 16px;
+    font-weight: 800;
+    color: #123a5c;
+    margin: 0;
+}
+
+.section-modal-body {
+    padding: 20px;
+}
+
+.section-modal-body .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.section-modal-body .input-group label {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--muted);
+    text-transform: uppercase;
+}
+
+.section-modal-body .input-group input {
+    height: 38px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 12px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.section-modal-body .input-group input:focus {
+    border-color: var(--primary);
+}
+
+.section-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--line);
+    background: #f8fafc;
+}
+
+/* Custom styling for Logo resizing & institution details card */
+.logo-and-inst-card {
+    transition: all 0.2s ease-in-out;
+}
+.logo-setup-container:hover {
+    border-color: var(--primary) !important;
+}
+.logo-setup-container.selected {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px rgba(23, 105, 170, 0.15);
+}
+.logo-delete-btn:hover {
+    background: #dc2626 !important;
+}
+.print-meta-grid div {
+    margin-bottom: 2px;
+}
+
+.logo-resize-handle {
+    display: none;
+}
+.logo-setup-container.selected .logo-resize-handle {
+    display: block;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   NATIVE EDITOR TABLE  (.editor-table)
+   Tables are direct children of the contenteditable visual editor.
+   No contenteditable="false" wrapper — they are fully native nodes.
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.editor-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+    margin: 10px 0;
+    font-size: 14px;
+    font-family: inherit;
+    position: relative;
+}
+
+.editor-table td,
+.editor-table th {
+    border: 1.5px solid var(--line, #cbd5e1);
+    padding: 7px 11px;
+    min-width: 40px;
+    min-height: 28px;
+    vertical-align: top;
+    word-break: break-word;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.editor-table th {
+    background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+    font-weight: 600;
+    text-align: left;
+}
+
+/* Focused table — blue outline */
+.editor-table.tbl-focused {
+    outline: 2px solid var(--primary, #3b82f6);
+    outline-offset: 2px;
+}
+
+/* Selected cell highlight */
+.editor-table td.cell-selected,
+.editor-table th.cell-selected {
+    background-color: rgba(59, 130, 246, 0.12);
+    outline: 2px solid rgba(59, 130, 246, 0.4);
+    outline-offset: -2px;
+}
+
+/* Hover highlight while not dragging */
+.editor-table td:hover,
+.editor-table th:hover {
+    background-color: rgba(59, 130, 246, 0.05);
+}
+.editor-table th:hover {
+    background-color: rgba(59, 130, 246, 0.08);
+}
+
+/* ── Column resize: invisible hit-zone strip stays via JS cursor on cell ── */
+/* Active resize: right-border highlight */
+.editor-table td.col-resizing,
+.editor-table th.col-resizing {
+    background-color: rgba(59, 130, 246, 0.08);
+    border-right-color: var(--primary, #3b82f6);
+    border-right-width: 2px;
+}
+
+/* Active row-resize row highlight */
+.editor-table tr.row-resizing td,
+.editor-table tr.row-resizing th {
+    border-bottom-color: var(--primary, #3b82f6);
+    border-bottom-width: 2px;
+}
+
+/* ── Live resize guide lines ── */
+/* These are fixed-position divs injected by JS during drag */
+#tblColGuide {
+    position: fixed;
+    top: 0;
+    width: 2px;
+    background: var(--primary, #3b82f6);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 9999;
+    display: none;
+}
+#tblRowGuide {
+    position: fixed;
+    left: 0;
+    height: 2px;
+    background: var(--primary, #3b82f6);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 9999;
+    display: none;
+}
+
+/* ── Table selection overlay with corner handles ── */
+/* A zero-size, absolutely-positioned wrapper tracked over the focused table */
+#tblResizeOverlay {
+    position: fixed;
+    pointer-events: none;
+    z-index: 8900;
+    display: none;
+    border: 2px solid var(--primary, #3b82f6);
+    border-radius: 2px;
+}
+#tblResizeOverlay .tbl-corner-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: #ffffff;
+    border: 2px solid var(--primary, #3b82f6);
+    border-radius: 2px;
+    pointer-events: all;
+    cursor: nwse-resize;
+    z-index: 8901;
+}
+#tblResizeOverlay .tbl-corner-handle.tl { top: -5px;  left: -5px;  cursor: nwse-resize; }
+#tblResizeOverlay .tbl-corner-handle.tr { top: -5px;  right: -5px; cursor: nesw-resize; }
+#tblResizeOverlay .tbl-corner-handle.bl { bottom: -5px; left: -5px;  cursor: nesw-resize; }
+#tblResizeOverlay .tbl-corner-handle.br { bottom: -5px; right: -5px; cursor: nwse-resize; }
+
+/* Right-edge handle for pure-width resizing (most-used) */
+#tblResizeOverlay .tbl-edge-handle {
+    position: absolute;
+    pointer-events: all;
+}
+#tblResizeOverlay .tbl-edge-handle.right {
+    top: 0;
+    right: -5px;
+    width: 10px;
+    height: 100%;
+    cursor: ew-resize;
+}
+#tblResizeOverlay .tbl-edge-handle.bottom {
+    bottom: -5px;
+    left: 0;
+    width: 100%;
+    height: 10px;
+    cursor: ns-resize;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   FLOATING TABLE TOOLBAR
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+#tableFloatingToolbar {
+    position: fixed;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 5px 8px;
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, #e2e8f0);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08);
+    backdrop-filter: blur(8px);
+    pointer-events: auto;
+    animation: toolbarFadeIn 0.15s ease;
+}
+
+@keyframes toolbarFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.tbl-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 9px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text, #334155);
+    white-space: nowrap;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    font-family: inherit;
+    line-height: 1.4;
+}
+
+.tbl-tool-btn:hover {
+    background: var(--bg, #f8fafc);
+    border-color: var(--line, #e2e8f0);
+    color: var(--primary, #3b82f6);
+}
+
+.tbl-tool-btn.tbl-tool-danger:hover {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #ef4444;
+}
+
+.tbl-tool-sep {
+    display: inline-block;
+    width: 1px;
+    height: 18px;
+    background: var(--line, #e2e8f0);
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+
+/* ── Layout dropdown ── */
+.tbl-tool-dropdown {
+    position: relative;
+    display: inline-flex;
+}
+.tbl-tool-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, #e2e8f0);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+    padding: 4px;
+    z-index: 9100;
+    min-width: 180px;
+    white-space: nowrap;
+    animation: toolbarFadeIn 0.12s ease;
+}
+.tbl-tool-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 7px 12px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text, #334155);
+    font-size: 12.5px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.tbl-tool-dropdown-item:hover {
+    background: var(--bg, #f8fafc);
+    color: var(--primary, #3b82f6);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   PRINT & EXPORT
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.print-paper-container .editor-table,
+.print-paper-container .editor-table td,
+.print-paper-container .editor-table th {
+    border: 1px solid #000 !important;
+    padding: 5px 9px;
+    font-size: 13px;
+}
+
+.print-paper-container .editor-table th {
+    background-color: #f1f5f9 !important;
+}
+
+/* Hide resize UI in print */
+@media print {
+    .editor-table td::after,
+    .editor-table th::after,
+    .editor-table td::before,
+    .editor-table th::before {
+        display: none !important;
+    }
+    .editor-table.tbl-focused {
+        outline: none !important;
+    }
+    #tableFloatingToolbar,
+    #tblResizeOverlay,
+    #tblColGuide,
+    #tblRowGuide {
+        display: none !important;
+    }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   LEGACY .table-token — backward compat for existing saved papers
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.table-token {
+    width: 100%;
+    overflow-x: auto;
+    margin: 12px 0;
+    border-radius: 4px;
+}
+.table-token table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: inherit;
+    font-size: 14px;
+}
+.table-token th, .table-token td {
+    border: 1px solid var(--line);
+    padding: 8px 12px;
+    text-align: left;
+}
+.table-token th {
+    background-color: #f8fafc;
+    font-weight: 600;
+}
+.print-paper-container .table-token th,
+.print-paper-container .table-token td {
+    border: 1px solid #000 !important;
+    padding: 6px 10px;
+}
+.print-paper-container .table-token th {
+    background-color: #f1f5f9 !important;
 }

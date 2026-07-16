@@ -299,6 +299,7 @@
                 <button type="button" class="tool-btn" id="globalFormatItalic" title="Italic"><i>I</i></button>
                 <div class="toolbar-divider"></div>
                 <button type="button" class="tool-btn" id="globalInsertEquation" title="Insert Equation">∑</button>
+                <button type="button" class="tool-btn" id="globalInsertTable" title="Insert Table">Table</button>
                 <button type="button" class="tool-btn" id="globalFormatCode" title="Code">Code</button>
             </div>
             <section class="question-workbench" id="questionWorkbench"></section>
@@ -373,14 +374,194 @@
         </div>
     </div>
 
+    <!-- Create Section Modal Dialog -->
+    <div class="modal-overlay" id="sectionModal" hidden>
+        <div class="section-modal-content">
+            <div class="section-modal-header">
+                <h2>Create Section</h2>
+                <button type="button" class="modal-close-btn" id="closeSectionModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="section-modal-body">
+                <div class="input-group">
+                    <label for="newSectionName">Section Name</label>
+                    <input type="text" id="newSectionName" placeholder="e.g. Mathematics, Physics, Chemistry" autocomplete="off" />
+                </div>
+                <div class="input-group" style="margin-top: 16px;">
+                    <label for="newSectionQuestionsCount">Number of Questions</label>
+                    <input type="number" id="newSectionQuestionsCount" value="5" min="1" step="1" />
+                </div>
+                <div class="validation-message" id="sectionValidationMessage" style="color: #ef4444; font-size: 13px; font-weight: 500; margin-top: 12px;" hidden></div>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelSectionModalBtn">Cancel</button>
+                <button type="button" class="btn primary" id="confirmSectionModalBtn">Create Section</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Questions Modal Dialog -->
+    <div class="modal-overlay" id="addQuestionsModal" hidden>
+        <div class="section-modal-content">
+            <div class="section-modal-header">
+                <h2 id="addQuestionsModalTitle">Add Questions to Section</h2>
+                <button type="button" class="modal-close-btn" id="closeAddQuestionsModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="section-modal-body">
+                <div class="input-group" style="margin-bottom: 16px;">
+                    <label for="editSectionNameInput">Section Name</label>
+                    <input type="text" id="editSectionNameInput" placeholder="Section Name" maxlength="50" />
+                </div>
+                <div style="font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 12px;" id="currentQuestionsCountLabel">Current Questions: 0</div>
+                <div class="input-group">
+                    <label for="additionalQuestionsCount">Additional Questions</label>
+                    <input type="number" id="additionalQuestionsCount" value="5" min="0" step="1" />
+                </div>
+                <div class="validation-message" id="addQuestionsValidationMessage" style="color: #ef4444; font-size: 13px; font-weight: 500; margin-top: 12px;" hidden></div>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelAddQuestionsModalBtn">Cancel</button>
+                <button type="button" class="btn primary" id="confirmAddQuestionsModalBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Editor (Toast UI) Modal -->
+    <div class="modal-overlay" id="advancedEditorModal" hidden>
+        <div class="equation-modal-content" style="max-width: 800px; height: 600px; display: flex; flex-direction: column;">
+            <div class="equation-modal-header">
+                <h2>Advanced Editor (Tables & Lists)</h2>
+                <button type="button" class="modal-close-btn" id="closeAdvancedEditorModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="equation-modal-body" style="flex: 1; display: flex; flex-direction: column; padding: 16px; min-height: 0;">
+                <div id="tuiEditorContainer" style="flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 8px;"></div>
+                <div class="validation-message" id="advancedEditorValidationMessage" style="color: #ef4444; font-size: 13px; font-weight: 500; margin-top: 12px;" hidden></div>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelAdvancedEditorModalBtn">Cancel</button>
+                <button type="button" class="btn primary" id="confirmAdvancedEditorModalBtn">Insert Content</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Paper Confirmation Modal -->
+    <div class="modal-overlay" id="deletePaperModal" hidden>
+        <div class="section-modal-content">
+            <div class="section-modal-header">
+                <h2>Delete Question Paper</h2>
+                <button type="button" class="modal-close-btn" id="closeDeletePaperModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="section-modal-body">
+                <p style="font-size: 14px; color: var(--text); line-height: 1.5; margin: 0 0 10px 0;">
+                    Are you sure you want to permanently delete <strong id="deletePaperNameLabel">"Question Paper"</strong>?
+                </p>
+                <p style="font-size: 13px; color: var(--muted); margin: 0;">This action cannot be undone.</p>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelDeletePaperModalBtn">Cancel</button>
+                <button type="button" class="btn danger" id="confirmDeletePaperModalBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Word Export Confirmation Modal -->
+    <div class="modal-overlay" id="wordExportModal" hidden>
+        <div class="section-modal-content">
+            <div class="section-modal-header">
+                <h2>Download Word Document</h2>
+                <button type="button" class="modal-close-btn" id="closeWordExportModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="section-modal-body">
+                <p style="font-size: 14px; color: var(--text); line-height: 1.5; margin: 0 0 16px 0; font-weight: 500;">
+                    Choose what you want to export:
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; font-weight: 500; color: var(--text);">
+                        <input type="radio" name="wordExportOption" value="paperOnly" checked style="width: 16px; height: 16px; accent-color: var(--primary);" />
+                        Question Paper Only
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; font-weight: 500; color: var(--text);">
+                        <input type="radio" name="wordExportOption" value="paperAndAnswers" style="width: 16px; height: 16px; accent-color: var(--primary);" />
+                        Question Paper + Answer Key
+                    </label>
+                </div>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelWordExportModalBtn">Cancel</button>
+                <button type="button" class="btn primary" id="confirmWordExportModalBtn">Download</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Custom context menu for Mermaid diagrams -->
     <div class="custom-context-menu" id="customContextMenu" hidden>
         <button type="button" class="context-menu-item" id="contextEditDiagram">✏️ Edit Diagram</button>
         <button type="button" class="context-menu-item delete" id="contextDeleteDiagram">🗑️ Delete Diagram</button>
     </div>
 
+    <!-- Custom context menu for Institution Logo -->
+    <div class="custom-context-menu" id="logoContextMenu" hidden>
+        <button type="button" class="context-menu-item" id="logoContextResize">✏️ Edit Logo</button>
+        <button type="button" class="context-menu-item" id="logoContextReplace">🔄 Replace Logo</button>
+        <button type="button" class="context-menu-item delete" id="logoContextDelete">🗑️ Delete Logo</button>
+    </div>
+
+    <!-- Custom context menu for Tables -->
+    <div class="custom-context-menu" id="tableContextMenu" hidden>
+        <button type="button" class="context-menu-item" id="tableContextInsertRowAbove">➕ Insert Row Above</button>
+        <button type="button" class="context-menu-item" id="tableContextInsertRowBelow">➕ Insert Row Below</button>
+        <button type="button" class="context-menu-item" id="tableContextInsertColLeft">➕ Insert Column Left</button>
+        <button type="button" class="context-menu-item" id="tableContextInsertColRight">➕ Insert Column Right</button>
+        <div class="toolbar-divider" style="margin: 4px 0; height: 1px; background: var(--line);"></div>
+        <button type="button" class="context-menu-item delete" id="tableContextDeleteRow">🗑️ Delete Row</button>
+        <button type="button" class="context-menu-item delete" id="tableContextDeleteCol">🗑️ Delete Column</button>
+        <button type="button" class="context-menu-item delete" id="tableContextDeleteTable">🗑️ Delete Table</button>
+        <div class="toolbar-divider" style="margin: 4px 0; height: 1px; background: var(--line);"></div>
+        <button type="button" class="context-menu-item" id="tableContextMerge">🥞 Merge Cells</button>
+        <button type="button" class="context-menu-item" id="tableContextSplit">🥞 Split Cells</button>
+    </div>
+
+    <!-- Table resize UI: guide lines (column, row) + selection overlay with handles -->
+    <div id="tblColGuide"></div>
+    <div id="tblRowGuide"></div>
+    <div id="tblResizeOverlay">
+        <div class="tbl-corner-handle tl" data-handle="tl"></div>
+        <div class="tbl-corner-handle tr" data-handle="tr"></div>
+        <div class="tbl-corner-handle bl" data-handle="bl"></div>
+        <div class="tbl-corner-handle br" data-handle="br"></div>
+        <div class="tbl-edge-handle right"  data-handle="right"></div>
+        <div class="tbl-edge-handle bottom" data-handle="bottom"></div>
+    </div>
+
     <div id="printPaperContainer" class="print-paper-container"></div>
     <input type="file" id="fileInput" accept="application/json,.json" hidden />
+    <!-- Floating Table Toolbar – shown whenever cursor is inside an editor-table -->
+    <div id="tableFloatingToolbar" hidden>
+        <button type="button" class="tbl-tool-btn" id="tblToolRowAbove" title="Add Row Above">⬆ Row</button>
+        <button type="button" class="tbl-tool-btn" id="tblToolRowBelow" title="Add Row Below">⬇ Row</button>
+        <button type="button" class="tbl-tool-btn tbl-tool-danger" id="tblToolDelRow" title="Delete Row">✕ Row</button>
+        <span class="tbl-tool-sep"></span>
+        <button type="button" class="tbl-tool-btn" id="tblToolColLeft" title="Add Column Left">⬅ Col</button>
+        <button type="button" class="tbl-tool-btn" id="tblToolColRight" title="Add Column Right">➡ Col</button>
+        <button type="button" class="tbl-tool-btn tbl-tool-danger" id="tblToolDelCol" title="Delete Column">✕ Col</button>
+        <span class="tbl-tool-sep"></span>
+        <button type="button" class="tbl-tool-btn" id="tblToolMerge" title="Merge Cells">⊞ Merge</button>
+        <button type="button" class="tbl-tool-btn" id="tblToolSplit" title="Split Cells">⊟ Split</button>
+        <span class="tbl-tool-sep"></span>
+        <!-- Table Properties / Auto-fit dropdown -->
+        <div class="tbl-tool-dropdown" id="tblToolPropsWrap">
+            <button type="button" class="tbl-tool-btn" id="tblToolProps" title="Table Properties">⚙ Layout ▾</button>
+            <div class="tbl-tool-dropdown-menu" id="tblToolPropsMenu" hidden>
+                <button type="button" class="tbl-tool-dropdown-item" data-autofit="window">Auto Fit to Window</button>
+                <button type="button" class="tbl-tool-dropdown-item" data-autofit="content">Auto Fit to Content</button>
+                <button type="button" class="tbl-tool-dropdown-item" data-autofit="equal">Equal Column Width</button>
+                <button type="button" class="tbl-tool-dropdown-item" data-autofit="fixed">Fixed Width (lock)</button>
+                <button type="button" class="tbl-tool-dropdown-item" data-autofit="equalRowHeight">Equal Row Height</button>
+            </div>
+        </div>
+        <span class="tbl-tool-sep"></span>
+        <button type="button" class="tbl-tool-btn tbl-tool-danger" id="tblToolDeleteTable" title="Delete Table">🗑 Table</button>
+    </div>
+
     <div class="toast" id="toast"></div>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script src="https://unpkg.com/mathlive"></script>

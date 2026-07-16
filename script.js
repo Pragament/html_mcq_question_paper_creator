@@ -87,6 +87,7 @@ let state = {
     activeSectionId: null,
     filterSearchQuery: '',
     filterSelectedTags: [],
+    isHoveringLogoArea: false,
 };
 
 let cachedUniqueTagsStr = '';
@@ -127,6 +128,14 @@ document.addEventListener('paste', handlePaste);
 load();
 initEquationModal();
 initGlobalToolbar();
+initSectionModal();
+initAddQuestionsModal();
+initDeletePaperModal();
+initWordExportModal();
+initLogoContextMenu();
+initAdvancedEditorModal();
+initTableContextMenu();
+initTableFloatingToolbar();
 render();
 
 function load() {
@@ -156,6 +165,12 @@ function normalize() {
     state.papers.forEach(paper => {
         paper.meta ||= {};
         paper.tags ||= [];
+        paper.logo ||= '';
+        paper.logoWidth ||= 120;
+        paper.logoHeight ||= 120;
+        paper.meta.institutionName ||= '';
+        paper.meta.institutionSubtitle ||= '';
+        paper.meta.date ||= '';
         paper.layout = ['row', 'grid2', 'column'].includes(paper.layout) ? paper.layout : 'row';
         paper.sections ||= [];
         paper.sections.forEach(section => {
@@ -274,15 +289,23 @@ function renderPaperList() {
     els.paperList.innerHTML = filteredPapers.map(paper => {
         const count = countQuestions(paper);
         return `
-            <button class="paper-row ${paper.id === state.activePaperId ? 'active' : ''}" data-action="select-paper" data-id="${paper.id}">
-                <strong>${esc(paper.title)}</strong>
-                <span>${esc(paper.meta.className || 'Class')} · ${count} questions</span>
-                ${paper.tags && paper.tags.length ? `
-                <div class="sidebar-paper-tags">
-                    ${paper.tags.map(tag => `<span class="sidebar-tag-chip">${esc(tag)}</span>`).join('')}
+            <div class="paper-row-container ${paper.id === state.activePaperId ? 'active' : ''}">
+                <button class="paper-row" data-action="select-paper" data-id="${paper.id}">
+                    <strong>${esc(paper.title)}</strong>
+                    <span>${esc(paper.meta.className || 'Class')} · ${count} questions</span>
+                    ${paper.tags && paper.tags.length ? `
+                    <div class="sidebar-paper-tags">
+                        ${paper.tags.map(tag => `<span class="sidebar-tag-chip">${esc(tag)}</span>`).join('')}
+                    </div>
+                    ` : ''}
+                </button>
+                <button type="button" class="paper-menu-btn" data-action="toggle-paper-menu" data-id="${paper.id}">⋮</button>
+                <div class="paper-dropdown-menu" data-menu-id="${paper.id}" hidden>
+                    <button type="button" class="menu-item" data-menu-action="open" data-id="${paper.id}">Open</button>
+                    <button type="button" class="menu-item" data-menu-action="rename" data-id="${paper.id}">Rename</button>
+                    <button type="button" class="menu-item danger" data-menu-action="delete" data-id="${paper.id}">Delete</button>
                 </div>
-                ` : ''}
-            </button>
+            </div>
         `;
     }).join('');
     
@@ -291,6 +314,64 @@ function renderPaperList() {
             state.activePaperId = btn.dataset.id;
             state.activeSectionId = getActivePaper().sections[0]?.id || null;
             render();
+        });
+    });
+
+    els.paperList.querySelectorAll('[data-action="toggle-paper-menu"]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const paperId = btn.dataset.id;
+            const dropdowns = els.paperList.querySelectorAll('.paper-dropdown-menu');
+            dropdowns.forEach(menu => {
+                if (menu.dataset.menuId === paperId) {
+                    if (menu.hasAttribute('hidden')) {
+                        menu.removeAttribute('hidden');
+                    } else {
+                        menu.setAttribute('hidden', 'true');
+                    }
+                } else {
+                    menu.setAttribute('hidden', 'true');
+                }
+            });
+        });
+    });
+
+    els.paperList.querySelectorAll('[data-menu-action="open"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const paperId = btn.dataset.id;
+            state.activePaperId = paperId;
+            state.activeSectionId = getActivePaper().sections[0]?.id || null;
+            render();
+        });
+    });
+
+    els.paperList.querySelectorAll('[data-menu-action="rename"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const paperId = btn.dataset.id;
+            const paper = state.papers.find(p => p.id === paperId);
+            if (paper) {
+                const newTitle = prompt('Rename Question Paper', paper.title);
+                if (newTitle && newTitle.trim()) {
+                    paper.title = newTitle.trim();
+                    render();
+                }
+            }
+        });
+    });
+
+    els.paperList.querySelectorAll('[data-menu-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const paperId = btn.dataset.id;
+            const paper = state.papers.find(p => p.id === paperId);
+            if (paper) {
+                state.pendingDeletePaperId = paperId;
+                const modal = document.getElementById('deletePaperModal');
+                const label = document.getElementById('deletePaperNameLabel');
+                if (modal && label) {
+                    label.textContent = `"${paper.title}"`;
+                    modal.removeAttribute('hidden');
+                }
+            }
         });
     });
     
@@ -338,8 +419,36 @@ function renderSidebarFilterTags() {
 
 function renderPaperSetup() {
     const paper = getActivePaper();
-    if (!paper) return;
+    if (!paper) {
+        els.paperSetup.innerHTML = '';
+        return;
+    }
     els.paperSetup.innerHTML = `
+        <div class="logo-and-inst-card" style="display: flex; gap: 20px; align-items: center; background: #f8fafc; padding: 16px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 16px;">
+            <div class="logo-setup-container" id="logoSetupContainer" style="position: relative; width: ${paper.logoWidth || 120}px; height: ${paper.logoHeight || 120}px; border: 2px dashed var(--line); border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #ffffff; user-select: none;">
+                <input type="file" id="logoFileInput" accept="image/*" style="display: none;" />
+                ${paper.logo ? `
+                    <img src="${paper.logo}" id="logoImg" alt="Logo" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none;" />
+                    <div class="logo-resize-handle top-left" style="position: absolute; width: 8px; height: 8px; background: var(--primary); border: 1px solid #fff; border-radius: 50%; top: -4px; left: -4px; cursor: nwse-resize;"></div>
+                    <div class="logo-resize-handle top-right" style="position: absolute; width: 8px; height: 8px; background: var(--primary); border: 1px solid #fff; border-radius: 50%; top: -4px; right: -4px; cursor: nesw-resize;"></div>
+                    <div class="logo-resize-handle bottom-left" style="position: absolute; width: 8px; height: 8px; background: var(--primary); border: 1px solid #fff; border-radius: 50%; bottom: -4px; left: -4px; cursor: nesw-resize;"></div>
+                    <div class="logo-resize-handle bottom-right" style="position: absolute; width: 8px; height: 8px; background: var(--primary); border: 1px solid #fff; border-radius: 50%; bottom: -4px; right: -4px; cursor: nwse-resize;"></div>
+                ` : `
+                    <div style="font-size: 11px; text-align: center; color: var(--text-muted); padding: 8px; pointer-events: none;">Click to Upload Logo or Paste Image</div>
+                `}
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+                <div class="field">
+                    <label>Institution Name</label>
+                    <input type="text" data-meta="institutionName" placeholder="e.g. Green Valley High School" value="${esc(paper.meta.institutionName || '')}" style="width: 100%;" />
+                </div>
+                <div class="field">
+                    <label>Institution Subtitle / Address</label>
+                    <input type="text" data-meta="institutionSubtitle" placeholder="e.g. New York, USA" value="${esc(paper.meta.institutionSubtitle || '')}" style="width: 100%;" />
+                </div>
+            </div>
+        </div>
+
         <div class="setup-grid">
             ${field('Title', 'title', paper.title, 'Paper title')}
             ${field('Class', 'className', paper.meta.className, 'IX')}
@@ -347,6 +456,7 @@ function renderPaperSetup() {
             ${field('Test', 'testName', paper.meta.testName, 'Unit Test')}
             ${field('Time', 'duration', paper.meta.duration, '1 hr')}
             ${field('Marks', 'marks', paper.meta.marks, '60')}
+            ${field('Date', 'date', paper.meta.date, 'DD/MM/YYYY')}
             
             <div class="field tags-field" style="grid-column: 2 / -1;">
                 <label>Tags</label>
@@ -391,6 +501,90 @@ function renderPaperSetup() {
             render();
         });
     });
+
+    const logoContainer = document.getElementById('logoSetupContainer');
+    if (logoContainer) {
+        const fileInput = document.getElementById('logoFileInput');
+        logoContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('logo-resize-handle')) return;
+            if (paper.logo) {
+                logoContainer.classList.add('selected');
+            } else {
+                fileInput.click();
+            }
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    paper.logo = reader.result;
+                    save();
+                    render();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        const handles = logoContainer.querySelectorAll('.logo-resize-handle');
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const startWidth = paper.logoWidth || 120;
+                const startHeight = paper.logoHeight || 120;
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const isRight = handle.classList.contains('top-right') || handle.classList.contains('bottom-right');
+                const isBottom = handle.classList.contains('bottom-left') || handle.classList.contains('bottom-right');
+                
+                const onMouseMove = (moveEvent) => {
+                    let deltaX = moveEvent.clientX - startX;
+                    let deltaY = moveEvent.clientY - startY;
+                    
+                    let newWidth = startWidth + (isRight ? deltaX : -deltaX);
+                    let newHeight = startHeight + (isBottom ? deltaY : -deltaY);
+                    
+                    if (!moveEvent.shiftKey) {
+                        const ratio = startWidth / startHeight;
+                        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                            newHeight = newWidth / ratio;
+                        } else {
+                            newWidth = newHeight * ratio;
+                        }
+                    }
+                    
+                    newWidth = Math.max(40, Math.min(250, newWidth));
+                    newHeight = Math.max(40, Math.min(250, newHeight));
+                    
+                    logoContainer.style.width = `${newWidth}px`;
+                    logoContainer.style.height = `${newHeight}px`;
+                    
+                    paper.logoWidth = newWidth;
+                    paper.logoHeight = newHeight;
+                };
+                
+                const onMouseUp = () => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    save();
+                    render();
+                };
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        });
+        
+        logoContainer.addEventListener('mouseenter', () => {
+            state.isHoveringLogoArea = true;
+        });
+        logoContainer.addEventListener('mouseleave', () => {
+            state.isHoveringLogoArea = false;
+        });
+    }
 
     const container = document.getElementById('tagsInputContainer');
     const input = document.getElementById('tagTextInput');
@@ -579,7 +773,10 @@ function field(label, key, value, placeholder) {
 
 function renderSectionTabs() {
     const paper = getActivePaper();
-    if (!paper) return;
+    if (!paper) {
+        els.sectionTabs.innerHTML = '';
+        return;
+    }
     els.sectionTabs.innerHTML = `
         ${paper.sections.map(section => `
             <button class="section-tab ${section.id === state.activeSectionId ? 'active' : ''}" data-section="${section.id}">
@@ -592,14 +789,23 @@ function renderSectionTabs() {
         btn.addEventListener('click', () => {
             state.activeSectionId = btn.dataset.section;
             render();
+            openAddQuestionsModal();
         });
     });
     document.getElementById('addSectionBtn').addEventListener('click', addSection);
 }
 
 function renderWorkbench() {
+    const paper = getActivePaper();
     const section = getActiveSection();
     const globalToolbar = document.getElementById('globalToolbar');
+    
+    if (!paper) {
+        if (globalToolbar) globalToolbar.hidden = true;
+        els.workbench.innerHTML = `<div class="empty-state"><strong>No papers yet</strong>Click the "+" button in the sidebar to create a new question paper.</div>`;
+        return;
+    }
+    
     if (!section) {
         if (globalToolbar) globalToolbar.hidden = true;
         els.workbench.innerHTML = `<div class="empty-state"><strong>No section selected</strong>Add a section to start writing questions.</div>`;
@@ -649,9 +855,18 @@ function renderWorkbench() {
         renderPrintPaper();
         save();
     });
-    document.getElementById('addQuestionBtn').addEventListener('click', () => addQuestion(section.id));
-    document.getElementById('bottomAddQuestionBtn').addEventListener('click', () => addQuestion(section.id));
-    document.getElementById('bottomAddSectionBtn').addEventListener('click', addSection);
+    const addQBtn = document.getElementById('addQuestionBtn');
+    if (addQBtn) {
+        addQBtn.addEventListener('click', () => addQuestion(section.id));
+    }
+    const bottomAddQBtn = document.getElementById('bottomAddQuestionBtn');
+    if (bottomAddQBtn) {
+        bottomAddQBtn.addEventListener('click', () => addQuestion(section.id));
+    }
+    const bottomAddSectBtn = document.getElementById('bottomAddSectionBtn');
+    if (bottomAddSectBtn) {
+        bottomAddSectBtn.addEventListener('click', addSection);
+    }
     document.getElementById('reuseQuestionBtn').addEventListener('click', toggleReusePanel);
     document.getElementById('reuseSearchInput').addEventListener('input', renderReuseResults);
     document.getElementById('duplicateSectionBtn').addEventListener('click', duplicateSection);
@@ -724,22 +939,24 @@ function questionCard(question, index) {
                     })}
                     <div class="paste-hint">Paste images directly at the cursor. Use simple markdown for bold, italics, and math.</div>
                 </div>
-                <div class="question-tools">
-                    <button class="small-btn" data-question-action="move-up" data-qid="${question.id}">↑</button>
-                    <button class="small-btn" data-question-action="move-down" data-qid="${question.id}">↓</button>
-                    <button class="small-btn" data-question-action="duplicate" data-qid="${question.id}"${UI_CONFIG.showCopy ? '' : ' style="display: none;"'}>Copy</button>
-                    <button class="small-btn danger" data-question-action="delete" data-qid="${question.id}">Delete</button>
+                <div class="question-tools-column">
+                    <div class="question-tools">
+                        <button class="small-btn" data-question-action="move-up" data-qid="${question.id}">↑</button>
+                        <button class="small-btn" data-question-action="move-down" data-qid="${question.id}">↓</button>
+                        <button class="small-btn" data-question-action="duplicate" data-qid="${question.id}"${UI_CONFIG.showCopy ? '' : ' style="display: none;"'}>Copy</button>
+                        <button class="small-btn danger" data-question-action="delete" data-qid="${question.id}">Delete</button>
+                    </div>
+                    <div class="segmented">
+                        ${LAYOUTS.map(layout => `
+                            <button class="${question.layout === layout.id ? 'active' : ''}" data-layout="${layout.id}" data-qid="${question.id}">${layout.label}</button>
+                        `).join('')}
+                    </div>
                 </div>
             </div>
             <div class="options-grid ${question.layout}">
                 ${question.options.map((option, optionIndex) => optionCard(question, option, optionIndex)).join('')}
             </div>
             <div class="layout-row">
-                <div class="segmented">
-                    ${LAYOUTS.map(layout => `
-                        <button class="${question.layout === layout.id ? 'active' : ''}" data-layout="${layout.id}" data-qid="${question.id}">${layout.label}</button>
-                    `).join('')}
-                </div>
                 <span class="paste-hint">Answer: ${LABELS[question.correctIndex] || 'A'}</span>
             </div>
         </article>
@@ -907,16 +1124,19 @@ function applyFormat(editorId, format) {
     }
     
     const visual = wrapper.querySelector('[data-visual-editor]');
-    visual.focus();
-    
     const selection = window.getSelection();
-    if (saved && saved.isVisual && saved.range && selection) {
-        selection.removeAllRanges();
-        selection.addRange(saved.range);
+    
+    if (document.activeElement !== visual) {
+        visual.focus();
+        if (saved && saved.isVisual && saved.range && selection) {
+            selection.removeAllRanges();
+            selection.addRange(saved.range);
+        }
     }
     
     document.execCommand(format === 'bold' ? 'bold' : 'italic', false, null);
     updateFieldFromEditor(editorId, markdownFromVisual(visual));
+    updateActiveSelection();
 }
 
 let activeInsertEquationEditorId = null;
@@ -1083,6 +1303,12 @@ function initGlobalToolbar() {
     if (equationBtn) {
         equationBtn.addEventListener('click', () => {
             if (lastActiveEditorKey) insertEquation(lastActiveEditorKey);
+        });
+    }
+    const tableBtn = document.getElementById('globalInsertTable');
+    if (tableBtn) {
+        tableBtn.addEventListener('click', () => {
+            if (lastActiveEditorKey) openAdvancedEditorModal(lastActiveEditorKey);
         });
     }
     const codeBtn = document.getElementById('globalFormatCode');
@@ -1748,9 +1974,32 @@ function deleteSelectedToken(token) {
 
 // Centralized document-level click delegation
 document.addEventListener('click', e => {
-    // Hide context menu on any click OUTSIDE the context menu itself
+    // Hide context menus on any click OUTSIDE the context menus
     if (!e.target.closest('#customContextMenu')) {
         hideContextMenu();
+    }
+    if (!e.target.closest('#logoContextMenu')) {
+        hideLogoContextMenu();
+    }
+    if (!e.target.closest('#tableContextMenu')) {
+        hideTableContextMenu();
+    }
+    
+    // Logo container selection / deselection
+    const logoContainer = e.target.closest('#logoSetupContainer');
+    if (logoContainer && logoContainer.querySelector('img')) {
+        logoContainer.classList.add('selected');
+    } else {
+        document.getElementById('logoSetupContainer')?.classList.remove('selected');
+    }
+    
+    // Table selection / deselection
+    const tableToken = e.target.closest('.table-token');
+    if (tableToken) {
+        document.querySelectorAll('.table-token.selected').forEach(t => t.classList.remove('selected'));
+        tableToken.classList.add('selected');
+    } else {
+        document.querySelectorAll('.table-token.selected').forEach(t => t.classList.remove('selected'));
     }
     
     // 4. Check if clicked diagram corner delete button
@@ -1791,8 +2040,39 @@ document.addEventListener('click', e => {
     }
 });
 
-// Context Menu Right-click delegation on .mermaid-token
+// Context Menu Right-click delegation on .mermaid-token, logo container, or tables
 document.addEventListener('contextmenu', e => {
+    const tableCell = e.target.closest('td, th');
+    if (tableCell) {
+        // Native editor-table cells are handled by the capture-phase listener
+        // lower in this file. Skip them here to avoid double-firing.
+        if (tableCell.closest('table.editor-table')) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        activeTableCell = tableCell;
+        const token = tableCell.closest('.table-token');
+        if (token) {
+            document.querySelectorAll('.table-token.selected').forEach(t => t.classList.remove('selected'));
+            token.classList.add('selected');
+        }
+        showTableContextMenu(e.clientX, e.clientY);
+        return;
+    }
+
+    const logoContainer = e.target.closest('#logoSetupContainer');
+    if (logoContainer) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (logoContainer.querySelector('img')) {
+            logoContainer.classList.add('selected');
+        }
+        
+        showLogoContextMenu(e.clientX, e.clientY);
+        return;
+    }
+
     const token = e.target.closest('.mermaid-token');
     if (token) {
         const visualEditor = token.closest('[data-visual-editor]');
@@ -1859,9 +2139,62 @@ document.addEventListener('dblclick', e => {
     }
 });
 
-// Key listener to delete selected Mermaid diagrams
+// Key listener to delete selected Mermaid diagrams or tables, and handle cell Tab navigation
 document.addEventListener('keydown', e => {
+    if (state.isHoveringLogoArea) {
+        const paper = getActivePaper();
+        if (paper && (e.key === 'Backspace' || e.key === 'Delete')) {
+            if (paper.logo) {
+                e.preventDefault();
+                paper.logo = '';
+                save();
+                render();
+                toast('Logo deleted');
+                return;
+            }
+        }
+    }
+    
+    // Tab / Shift+Tab navigation between table cells
+    if (e.key === 'Tab') {
+        const activeCell = e.target.closest('td, th');
+        if (activeCell) {
+            e.preventDefault();
+            const table = activeCell.closest('table');
+            if (table) {
+                const cells = Array.from(table.querySelectorAll('td, th'));
+                const idx = cells.indexOf(activeCell);
+                let nextIdx = e.shiftKey ? idx - 1 : idx + 1;
+                
+                if (nextIdx >= 0 && nextIdx < cells.length) {
+                    cells[nextIdx].focus();
+                    
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    range.selectNodeContents(cells[nextIdx]);
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+            }
+            return;
+        }
+    }
+
     if (e.key === 'Backspace' || e.key === 'Delete') {
+        const selectedTable = document.querySelector('.table-token.selected');
+        if (selectedTable) {
+            e.preventDefault();
+            const visualEditor = selectedTable.closest('[data-visual-editor]');
+            const editorId = visualEditor?.closest('[data-rich-editor]')?.dataset.editorId;
+            selectedTable.remove();
+            if (visualEditor && editorId) {
+                updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+                save();
+            }
+            return;
+        }
+
         const selectedToken = document.querySelector('.mermaid-token.selected');
         if (selectedToken) {
             e.preventDefault();
@@ -1870,7 +2203,10 @@ document.addEventListener('keydown', e => {
     }
 });
 
-// Centralized document-level mousedown listener (handles both context menu actions and drag resizing)
+// Note: editor-table column/row resize mousedown is handled by the
+// complete resize engine further below (_colResizeCell / _rowResizeRow).
+
+// This mousedown handler handles mermaid diagram resize handles and context menu buttons.
 document.addEventListener('mousedown', e => {
     // 1. Handle Context Menu "Edit Diagram" Button Click
     const editBtn = e.target.closest('#contextEditDiagram');
@@ -2469,7 +2805,7 @@ function markdownToVisualHtml(markdown) {
     const source = String(markdown || '');
     if (!source.trim()) return '';
     let html = '';
-    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\*\*([^*]+)\*\*|\*([^*]+)\*|\n/g;
+    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\*\*([^*]+)\*\*|\*([^*]+)\*|\[table:([A-Za-z0-9+/=]+)\]|\n/g;
     let last = 0;
     let match;
     while ((match = tokenRe.exec(source))) {
@@ -2498,6 +2834,25 @@ function markdownToVisualHtml(markdown) {
             html += `<strong>${esc(match[7])}</strong>`;
         } else if (match[8]) {
             html += `<em>${esc(match[8])}</em>`;
+        } else if (match[9]) {
+            // [table:base64] → native <table class="editor-table"> directly in the editor
+            // No contenteditable="false" wrapper — the table is a live native node.
+            try {
+                const tableHtml = decodeURIComponent(escape(atob(match[9])));
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(tableHtml, 'text/html');
+                const tableEl = doc.querySelector('table');
+                if (tableEl) {
+                    tableEl.classList.add('editor-table');
+                    // Ensure table-layout is preserved
+                    if (!tableEl.style.tableLayout) tableEl.style.tableLayout = 'fixed';
+                    html += tableEl.outerHTML;
+                } else {
+                    html += `[table:${esc(match[9])}]`;
+                }
+            } catch (err) {
+                html += `[table:${esc(match[9])}]`;
+            }
         } else {
             html += '<br>';
         }
@@ -2549,6 +2904,39 @@ function nodeToMarkdown(node) {
     if (el.matches('.math-token')) {
         return `\\(${el.dataset.latex || el.textContent || ''}\\)`;
     }
+    if (el.matches('.table-token')) {
+        // Legacy wrapper (old saved papers) — serialize the inner table
+        const tableEl = el.querySelector('table');
+        if (tableEl) {
+            const clone = tableEl.cloneNode(true);
+            clone.classList.add('editor-table');
+            clone.querySelectorAll('td, th').forEach(cell => {
+                cell.removeAttribute('contenteditable');
+                cell.style.cursor = '';
+            });
+            const liveHtml = clone.outerHTML;
+            const base64Html = btoa(unescape(encodeURIComponent(liveHtml)));
+            return `[table:${base64Html}]`;
+        }
+        return `[table:${el.dataset.table || ''}]`;
+    }
+    if (el.matches('table.editor-table')) {
+        // Native editor table — serialize live DOM to [table:base64]
+        const clone = el.cloneNode(true);
+        clone.classList.remove('tbl-focused');
+        clone.querySelectorAll('td, th').forEach(cell => {
+            cell.classList.remove('cell-selected', 'col-resizing');
+            cell.removeAttribute('contenteditable');
+            cell.style.cursor = '';
+        });
+        clone.querySelectorAll('tr').forEach(tr => {
+            tr.classList.remove('row-resizing');
+            tr.style.cursor = '';
+        });
+        const liveHtml = clone.outerHTML;
+        const base64Html = btoa(unescape(encodeURIComponent(liveHtml)));
+        return `[table:${base64Html}]`;
+    }
     if (el.matches('.mermaid-token')) {
         const png = el.dataset.png || '';
         const code = el.dataset.mermaid || '';
@@ -2597,7 +2985,10 @@ function markdownFromCode(code, imageMapJson) {
 
 function renderTeacherPanel() {
     const paper = getActivePaper();
-    if (!paper) return;
+    if (!paper) {
+        els.teacherPanel.innerHTML = '';
+        return;
+    }
     const questions = allQuestions(paper);
     const unanswered = questions.filter(q => !q.options.some(o => o.text.trim())).length;
     els.teacherPanel.innerHTML = `
@@ -2675,19 +3066,37 @@ function renderPrintPaper() {
         `;
     }).join('');
 
+    const hasLogo = !!paper.logo;
+    const hasInst = !!(paper.meta.institutionName || paper.meta.institutionSubtitle);
+    let printHeaderHtml = '';
+
+    if (hasLogo || hasInst) {
+        printHeaderHtml += `
+            <div class="print-institution-row" style="display: flex; align-items: center; justify-content: center; gap: 20px; border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 16px;">
+                ${hasLogo ? `<img src="${paper.logo}" style="width: ${paper.logoWidth || 120}px; height: ${paper.logoHeight || 120}px; object-fit: contain;" />` : ''}
+                <div style="text-align: center;">
+                    ${paper.meta.institutionName ? `<h1 style="font-size: 16pt; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">${esc(paper.meta.institutionName)}</h1>` : ''}
+                    ${paper.meta.institutionSubtitle ? `<h2 style="font-size: 11pt; font-weight: 500; margin: 4px 0 0 0; color: #333;">${esc(paper.meta.institutionSubtitle)}</h2>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
     container.innerHTML = `
         <div class="print-paper">
-            <div class="print-header">
+            ${printHeaderHtml}
+            <div class="print-header" style="${(hasLogo || hasInst) ? 'border-top: none; padding-top: 0;' : ''}">
                 <h1 class="print-paper-title">${esc(paper.title || 'Question Paper')}</h1>
-                ${paper.meta.testName ? `<h2 class="print-test-name">${esc(paper.meta.testName)}</h2>` : ''}
-                <div class="print-meta-grid">
-                    <div><strong>Subject:</strong> ${esc(paper.meta.subject || '')}</div>
+                <div class="print-meta-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border-bottom: 1px solid #000; border-top: 1px solid #000; padding: 8px 0; margin-bottom: 16px; font-size: 10pt; text-align: left;">
                     <div><strong>Class:</strong> ${esc(paper.meta.className || '')}</div>
+                    <div><strong>Subject:</strong> ${esc(paper.meta.subject || '')}</div>
+                    <div><strong>Test:</strong> ${esc(paper.meta.testName || '')}</div>
                     <div><strong>Time:</strong> ${esc(paper.meta.duration || '')}</div>
                     <div><strong>Max Marks:</strong> ${esc(paper.meta.marks || '')}</div>
+                    <div><strong>Date:</strong> ${esc(paper.meta.date || '')}</div>
                 </div>
                 ${paper.meta.instructions ? `
-                    <div class="print-instructions">
+                    <div class="print-instructions" style="text-align: left; margin-bottom: 16px;">
                         <strong>Instructions:</strong>
                         <div class="print-instructions-text">${esc(paper.meta.instructions)}</div>
                     </div>
@@ -2716,6 +3125,9 @@ function createPaper() {
         id: uid('paper'),
         title: `Question Paper ${state.papers.length + 1}`,
         layout: 'row',
+        logo: '',
+        logoWidth: 120,
+        logoHeight: 120,
         meta: {
             className: '',
             subject: '',
@@ -2723,6 +3135,9 @@ function createPaper() {
             duration: '',
             marks: '',
             instructions: '',
+            institutionName: '',
+            institutionSubtitle: '',
+            date: '',
         },
         sections: [{ id: uid('section'), name: 'Section 1', layout: 'row', questions: [] }],
         tags: [],
@@ -2735,22 +3150,1546 @@ function createPaper() {
 }
 
 function addSection() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
     const paper = getActivePaper();
-    const section = { 
-        id: uid('section'), 
-        name: `Section ${paper.sections.length + 1}`, 
-        layout: paper.layout || 'row',
-        questions: [] 
+    const modal = document.getElementById('sectionModal');
+    const nameInput = document.getElementById('newSectionName');
+    const countInput = document.getElementById('newSectionQuestionsCount');
+    const validation = document.getElementById('sectionValidationMessage');
+    
+    if (!modal || !nameInput || !countInput) return;
+    
+    nameInput.value = `Section ${paper.sections.length + 1}`;
+    countInput.value = '5';
+    if (validation) {
+        validation.textContent = '';
+        validation.hidden = true;
+    }
+    
+    modal.removeAttribute('hidden');
+    nameInput.focus();
+    nameInput.select();
+}
+
+function initSectionModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('sectionModal');
+    const closeBtn = document.getElementById('closeSectionModalBtn');
+    const cancelBtn = document.getElementById('cancelSectionModalBtn');
+    const confirmBtn = document.getElementById('confirmSectionModalBtn');
+    const nameInput = document.getElementById('newSectionName');
+    const countInput = document.getElementById('newSectionQuestionsCount');
+    const validation = document.getElementById('sectionValidationMessage');
+    
+    if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
+    
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
     };
-    paper.sections.push(section);
-    state.activeSectionId = section.id;
-    render();
-    setTimeout(() => {
-        const input = document.getElementById('sectionNameInput');
-        input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        input?.focus();
-        input?.select();
-    }, 40);
+    
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+    
+    confirmBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        const countVal = countInput.value.trim();
+        const count = parseInt(countVal, 10);
+        
+        if (!name) {
+            if (validation) {
+                validation.textContent = 'Please enter a section name.';
+                validation.hidden = false;
+            }
+            nameInput.focus();
+            return;
+        }
+        
+        if (isNaN(count) || count <= 0 || !/^\d+$/.test(countVal)) {
+            if (validation) {
+                validation.textContent = 'Please enter a valid number of questions.';
+                validation.hidden = false;
+            }
+            countInput.focus();
+            return;
+        }
+        
+        if (validation) {
+            validation.hidden = true;
+        }
+        
+        const paper = getActivePaper();
+        const section = { 
+            id: uid('section'), 
+            name: name, 
+            layout: paper.layout || 'row',
+            questions: [] 
+        };
+        
+        for (let i = 0; i < count; i++) {
+            const q = newQuestion('', ['', '', '', ''], 0);
+            q.layout = section.layout;
+            section.questions.push(q);
+        }
+        
+        paper.sections.push(section);
+        state.activeSectionId = section.id;
+        hideModal();
+        render();
+        save();
+        
+        setTimeout(() => {
+            const cards = document.querySelectorAll('.question-card');
+            if (cards.length > 0) {
+                const first = cards[0];
+                first?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                first?.querySelector('[data-visual-editor]')?.focus();
+            }
+        }, 80);
+    });
+    
+    const handleEnter = (e) => {
+        if (e.key === 'Enter') {
+            confirmBtn.click();
+        }
+    };
+    nameInput.addEventListener('keydown', handleEnter);
+    countInput.addEventListener('keydown', handleEnter);
+}
+
+function openAddQuestionsModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const section = getActiveSection();
+    if (!section) return;
+    
+    const modal = document.getElementById('addQuestionsModal');
+    const titleEl = document.getElementById('addQuestionsModalTitle');
+    const nameInput = document.getElementById('editSectionNameInput');
+    const labelEl = document.getElementById('currentQuestionsCountLabel');
+    const countInput = document.getElementById('additionalQuestionsCount');
+    const validation = document.getElementById('addQuestionsValidationMessage');
+    
+    if (!modal || !titleEl || !labelEl || !countInput) return;
+    
+    titleEl.textContent = `Edit Section & Add Questions`;
+    if (nameInput) {
+        nameInput.value = section.name;
+    }
+    labelEl.textContent = `Current Questions: ${section.questions.length}`;
+    countInput.value = '5';
+    if (validation) {
+        validation.textContent = '';
+        validation.hidden = true;
+    }
+    
+    modal.removeAttribute('hidden');
+    if (nameInput) {
+        nameInput.focus();
+        nameInput.select();
+    }
+}
+
+function initAddQuestionsModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('addQuestionsModal');
+    const closeBtn = document.getElementById('closeAddQuestionsModalBtn');
+    const cancelBtn = document.getElementById('cancelAddQuestionsModalBtn');
+    const confirmBtn = document.getElementById('confirmAddQuestionsModalBtn');
+    const nameInput = document.getElementById('editSectionNameInput');
+    const countInput = document.getElementById('additionalQuestionsCount');
+    const validation = document.getElementById('addQuestionsValidationMessage');
+    
+    if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
+    
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
+    };
+    
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+    
+    confirmBtn.addEventListener('click', () => {
+        const nameVal = nameInput ? nameInput.value.trim() : '';
+        if (!nameVal) {
+            if (validation) {
+                validation.textContent = 'Section name cannot be empty.';
+                validation.hidden = false;
+            }
+            nameInput.focus();
+            return;
+        }
+        if (nameVal.length > 50) {
+            if (validation) {
+                validation.textContent = 'Section name cannot exceed 50 characters.';
+                validation.hidden = false;
+            }
+            nameInput.focus();
+            return;
+        }
+        if (!/^[a-zA-Z0-9\s.,!?'"()#&@\/\\:-]+$/.test(nameVal)) {
+            if (validation) {
+                validation.textContent = 'Section name contains invalid characters.';
+                validation.hidden = false;
+            }
+            nameInput.focus();
+            return;
+        }
+
+        const countVal = countInput.value.trim();
+        const count = countVal === '' ? 0 : parseInt(countVal, 10);
+        
+        if (isNaN(count) || count < 0 || (countVal !== '' && !/^\d+$/.test(countVal))) {
+            if (validation) {
+                validation.textContent = 'Please enter a valid number of questions (0 or more).';
+                validation.hidden = false;
+            }
+            countInput.focus();
+            return;
+        }
+        
+        if (validation) {
+            validation.hidden = true;
+        }
+        
+        const section = getActiveSection();
+        if (section) {
+            section.name = nameVal;
+            const startQuestionsIndex = section.questions.length;
+            if (count > 0) {
+                for (let i = 0; i < count; i++) {
+                    const q = newQuestion('', ['', '', '', ''], 0);
+                    q.layout = section.layout;
+                    section.questions.push(q);
+                }
+            }
+            hideModal();
+            render();
+            save();
+            
+            if (count > 0) {
+                setTimeout(() => {
+                    const cards = document.querySelectorAll('.question-card');
+                    if (cards.length > startQuestionsIndex) {
+                        const firstNew = cards[startQuestionsIndex];
+                        firstNew?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        firstNew?.querySelector('[data-visual-editor]')?.focus();
+                    }
+                }, 80);
+            }
+        }
+    });
+    
+    const handleEnter = (e) => {
+        if (e.key === 'Enter') {
+            confirmBtn.click();
+        }
+    };
+    if (nameInput) nameInput.addEventListener('keydown', handleEnter);
+    if (countInput) countInput.addEventListener('keydown', handleEnter);
+}
+
+function initDeletePaperModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('deletePaperModal');
+    const closeBtn = document.getElementById('closeDeletePaperModalBtn');
+    const cancelBtn = document.getElementById('cancelDeletePaperModalBtn');
+    const confirmBtn = document.getElementById('confirmDeletePaperModalBtn');
+    
+    if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
+    
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
+        state.pendingDeletePaperId = null;
+    };
+    
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+    
+    confirmBtn.addEventListener('click', () => {
+        const paperId = state.pendingDeletePaperId;
+        if (paperId) {
+            const wasActive = state.activePaperId === paperId;
+            state.papers = state.papers.filter(p => p.id !== paperId);
+            
+            if (wasActive) {
+                state.activePaperId = state.papers[0]?.id || null;
+                const activePaper = getActivePaper();
+                state.activeSectionId = activePaper?.sections[0]?.id || null;
+            }
+            
+            hideModal();
+            render();
+            toast('Question paper deleted');
+        }
+    });
+
+    document.addEventListener('click', () => {
+        const dropdowns = document.querySelectorAll('.paper-dropdown-menu');
+        dropdowns.forEach(menu => menu.setAttribute('hidden', 'true'));
+    });
+}
+
+function initWordExportModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('wordExportModal');
+    const closeBtn = document.getElementById('closeWordExportModalBtn');
+    const cancelBtn = document.getElementById('cancelWordExportModalBtn');
+    const confirmBtn = document.getElementById('confirmWordExportModalBtn');
+    
+    if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
+    
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
+    };
+    
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+    
+    confirmBtn.addEventListener('click', async () => {
+        const activePaper = getActivePaper();
+        if (!activePaper) {
+            hideModal();
+            return;
+        }
+        
+        const selectedOption = document.querySelector('input[name="wordExportOption"]:checked')?.value || 'paperOnly';
+        state.lastWordExportOption = selectedOption;
+        save();
+        
+        toast('Generating Word document...');
+        hideModal();
+        
+        const paper = deepCopy(activePaper);
+        await compileAllMermaidDiagramsInPaper(paper);
+        
+        if (selectedOption === 'paperAndAnswers') {
+            paper.includeAnswerKey = true;
+        }
+        
+        const blob = buildDocxBlob(paper);
+        downloadBlob(blob, `${fileName(paper.title)}.docx`);
+        toast('DOCX exported');
+    });
+}
+
+function initLogoContextMenu() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    
+    const menu = document.getElementById('logoContextMenu');
+    if (!menu) return;
+    
+    document.getElementById('logoContextReplace')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideLogoContextMenu();
+        document.getElementById('logoFileInput')?.click();
+    });
+    
+    document.getElementById('logoContextResize')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideLogoContextMenu();
+        const logoContainer = document.getElementById('logoSetupContainer');
+        if (logoContainer && logoContainer.querySelector('img')) {
+            logoContainer.classList.add('selected');
+            toast('Drag handles to resize logo');
+        }
+    });
+    
+    document.getElementById('logoContextDelete')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideLogoContextMenu();
+        const paper = getActivePaper();
+        if (paper) {
+            paper.logo = '';
+            save();
+            render();
+            toast('Logo deleted');
+        }
+    });
+}
+
+function showLogoContextMenu(x, y) {
+    const menu = document.getElementById('logoContextMenu');
+    if (!menu) return;
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.style.display = 'flex';
+    menu.removeAttribute('hidden');
+}
+
+function hideLogoContextMenu() {
+    const menu = document.getElementById('logoContextMenu');
+    if (!menu) return;
+    menu.setAttribute('hidden', 'true');
+    menu.style.display = 'none';
+}
+
+async function pasteLogoFromClipboard() {
+    try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            const imageType = item.types.find(type => type.startsWith('image/'));
+            if (imageType) {
+                const blob = await item.getType(imageType);
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const paper = getActivePaper();
+                    if (paper) {
+                        paper.logo = reader.result;
+                        save();
+                        render();
+                        toast('Logo pasted from clipboard');
+                    }
+                };
+                reader.readAsDataURL(blob);
+                return;
+            }
+        }
+        toast('Clipboard does not contain an image');
+    } catch (err) {
+        console.error("Failed to read clipboard:", err);
+        toast('Clipboard does not contain an image');
+    }
+}
+
+let activeAdvancedEditorId = null;
+// Single persistent editor instance – created once, never destroyed between open/close cycles.
+let activeTuiEditorInstance = null;
+let tuiEditorReady = false; // true once the instance has been successfully created
+
+function loadToastUI() {
+    return new Promise((resolve, reject) => {
+        if (window.toastui) {
+            // Scripts already loaded – resolve immediately
+            resolve();
+            return;
+        }
+
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://uicdn.toast.com/editor/latest/toastui-editor.min.css';
+        document.head.appendChild(link);
+
+        const script = document.createElement('script');
+        script.src = 'https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js';
+        script.onload = () => {
+            if (window.toastui) {
+                console.log('[AdvancedEditor] Toast UI scripts loaded successfully.');
+                resolve();
+            } else {
+                reject(new Error('Toast UI loaded but window.toastui is undefined'));
+            }
+        };
+        script.onerror = () => reject(new Error('Toast UI script failed to fetch from CDN'));
+        document.body.appendChild(script);
+    });
+}
+
+/**
+ * Creates the single persistent Toast UI Editor instance inside #tuiEditorContainer.
+ * Must be called ONCE after loadToastUI() resolves.
+ * Subsequent open/close cycles reuse this instance.
+ */
+function createTuiEditorInstance() {
+    const container = document.getElementById('tuiEditorContainer');
+    if (!container) {
+        console.error('[AdvancedEditor] #tuiEditorContainer not found in DOM.');
+        return;
+    }
+    if (activeTuiEditorInstance) {
+        console.log('[AdvancedEditor] Editor instance already exists – skipping creation.');
+        return;
+    }
+
+    try {
+        console.log('[AdvancedEditor] Creating persistent editor instance…');
+        activeTuiEditorInstance = new window.toastui.Editor({
+            el: container,
+            height: '100%',
+            initialEditType: 'wysiwyg',
+            previewStyle: 'vertical',
+            toolbarItems: [
+                ['heading', 'bold', 'italic'],
+                ['ul', 'ol'],
+                ['table'],
+                ['code', 'codeblock']
+            ]
+        });
+        tuiEditorReady = true;
+        console.log('[AdvancedEditor] Editor instance created successfully.');
+    } catch (err) {
+        console.error('[AdvancedEditor] Initialization error:', err);
+        activeTuiEditorInstance = null;
+        tuiEditorReady = false;
+    }
+}
+
+function openAdvancedEditorModal(editorId) {
+    console.log('[AdvancedEditor] Modal opened. editorId =', editorId);
+    hideContextMenu();
+    activeAdvancedEditorId = editorId || lastActiveEditorKey;
+
+    // ✅ Suppress blur → render() cycle while the modal is open.
+    // The visual editor's blur handler checks this flag; without it, opening
+    // the modal shifts focus away → blur fires → render() runs → the entire
+    // workbench DOM is rebuilt → savedRange points to destroyed nodes →
+    // table is inserted at the wrong position or not at all.
+    isEquationModalOpen = true;
+
+    const targetKey = activeAdvancedEditorId;
+    const saved = editorSelections[targetKey];
+    if (saved) {
+        savedRange = saved.isVisual ? saved.range : null;
+        savedSelectionStart = !saved.isVisual ? saved.selectionStart : null;
+        savedSelectionEnd = !saved.isVisual ? saved.selectionEnd : null;
+    } else {
+        savedRange = null;
+        savedSelectionStart = null;
+        savedSelectionEnd = null;
+    }
+
+    const modal = document.getElementById('advancedEditorModal');
+    if (!modal) return;
+
+    const validation = document.getElementById('advancedEditorValidationMessage');
+    if (validation) {
+        validation.textContent = '';
+        validation.hidden = true;
+    }
+
+    if (tuiEditorReady && activeTuiEditorInstance) {
+        // ✅ Fast path: editor already alive – just reset content and show modal
+        console.log('[AdvancedEditor] Reusing existing editor instance.');
+        try {
+            activeTuiEditorInstance.setMarkdown('', false);
+        } catch (e) {
+            console.warn('[AdvancedEditor] setMarkdown failed on reuse:', e);
+        }
+        // Dismiss any stale toast
+        if (els.toast && els.toast.classList.contains('show')) {
+            els.toast.classList.remove('show');
+            els.toast.style.pointerEvents = 'none';
+        }
+        modal.removeAttribute('hidden');
+        return;
+    }
+
+    // First-time path: scripts not yet loaded, or instance creation failed previously
+    toast('Loading Advanced Editor…');
+
+    loadToastUI().then(() => {
+        createTuiEditorInstance();
+
+        if (!tuiEditorReady) {
+            toast('Failed to load Advanced Editor. Please check your internet connection.');
+            return;
+        }
+
+        // Dismiss loading toast
+        if (els.toast && els.toast.textContent.includes('Loading')) {
+            els.toast.classList.remove('show');
+            els.toast.style.pointerEvents = 'none';
+        }
+
+        modal.removeAttribute('hidden');
+        console.log('[AdvancedEditor] Modal visible.');
+    }).catch(err => {
+        console.error('[AdvancedEditor] Initialization error:', err);
+        toast('Failed to load Advanced Editor. Please check your internet connection.');
+    });
+}
+
+function closeAdvancedEditorModal() {
+    console.log('[AdvancedEditor] Modal closed.');
+    const modal = document.getElementById('advancedEditorModal');
+    if (modal) {
+        modal.setAttribute('hidden', 'true');
+    }
+    // NOTE: Do NOT destroy the editor instance here.
+    // The persistent instance is kept alive so reopening is instantaneous and reliable.
+
+    // Re-enable the blur → render() cycle now that the modal is gone.
+    isEquationModalOpen = false;
+
+    const editorId = activeAdvancedEditorId;
+    if (editorId) {
+        const saved = editorSelections[editorId];
+        if (saved && saved.element) {
+            saved.element.focus();
+        } else {
+            const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+            if (wrapper) {
+                const visual = wrapper.querySelector('[data-visual-editor]');
+                if (visual && !wrapper.classList.contains('show-code')) {
+                    visual.focus();
+                } else {
+                    const code = wrapper.querySelector('[data-code-editor]');
+                    code?.focus();
+                }
+            }
+        }
+    }
+
+    activeAdvancedEditorId = null;
+    savedRange = null;
+    savedSelectionStart = null;
+    savedSelectionEnd = null;
+}
+
+// Destroy the persistent editor only when the whole page is unloaded
+window.addEventListener('beforeunload', () => {
+    if (activeTuiEditorInstance) {
+        console.log('[AdvancedEditor] Page unloading – destroying editor instance.');
+        try { activeTuiEditorInstance.destroy(); } catch (e) { /* ignore */ }
+        activeTuiEditorInstance = null;
+        tuiEditorReady = false;
+    }
+});
+
+function initAdvancedEditorModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('advancedEditorModal');
+    const closeBtn = document.getElementById('closeAdvancedEditorModalBtn');
+    const cancelBtn = document.getElementById('cancelAdvancedEditorModalBtn');
+    const confirmBtn = document.getElementById('confirmAdvancedEditorModalBtn');
+
+    if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
+
+    // Eagerly load Toast UI scripts in the background so the first open is instant.
+    // The editor instance itself is created inside openAdvancedEditorModal on first call.
+    loadToastUI()
+        .then(() => {
+            console.log('[AdvancedEditor] Toast UI pre-loaded in background.');
+            // Create the persistent instance now so the first open is instant.
+            createTuiEditorInstance();
+        })
+        .catch(err => {
+            // Non-fatal: the editor will retry when the user actually clicks Table.
+            console.warn('[AdvancedEditor] Background pre-load failed (likely offline):', err.message);
+        });
+    
+    closeBtn.addEventListener('click', closeAdvancedEditorModal);
+    cancelBtn.addEventListener('click', closeAdvancedEditorModal);
+    
+    let mousedownTarget = null;
+    modal.addEventListener('mousedown', e => {
+        mousedownTarget = e.target;
+    });
+    modal.addEventListener('click', e => {
+        const isContent = e.target.closest('.equation-modal-content');
+        if (e.target === modal && mousedownTarget === modal && !isContent) {
+            closeAdvancedEditorModal();
+        }
+        mousedownTarget = null;
+    });
+    
+    confirmBtn.addEventListener('click', () => {
+        if (!activeTuiEditorInstance) {
+            closeAdvancedEditorModal();
+            return;
+        }
+
+        const markdown = activeTuiEditorInstance.getMarkdown().trim();
+        const html = activeTuiEditorInstance.getHTML().trim();
+
+        if (!markdown) {
+            closeAdvancedEditorModal();
+            return;
+        }
+
+        const editorId = activeAdvancedEditorId;
+
+        // Build the table HTML with cells explicitly editable
+        const parser = new DOMParser();
+        const parsedDoc = parser.parseFromString(html, 'text/html');
+        const tableEl = parsedDoc.querySelector('table');
+        if (tableEl) {
+            tableEl.querySelectorAll('td, th').forEach(cell => {
+                cell.setAttribute('contenteditable', 'true');
+            });
+        }
+        const editableHtml = parsedDoc.body.innerHTML;
+        const base64Html = btoa(unescape(encodeURIComponent(editableHtml)));
+        const token = `[table:${base64Html}]`;
+
+        // ✅ Use savedRange / savedElement captured at modal-open time
+        // so cursor position is preserved even after focus moves to Toast UI.
+        const visualEditorEl = editorSelections[editorId]?.element ||
+            document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"] [data-visual-editor]`);
+        const isVisualMode = !document.querySelector(
+            `[data-rich-editor][data-editor-id="${cssEscape(editorId)}"].show-code`
+        );
+
+        if (savedRange && visualEditorEl && isVisualMode) {
+            // ✅ Preferred path: insert native editor-table at the exact saved cursor position.
+            // No contenteditable="false" wrapper — the table lives directly in the editor.
+            const parser = new DOMParser();
+            const parsedDoc = parser.parseFromString(html, 'text/html');
+            const tableEl = parsedDoc.querySelector('table');
+            if (tableEl) {
+                tableEl.classList.add('editor-table');
+                tableEl.style.tableLayout = 'fixed';
+                tableEl.querySelectorAll('td, th').forEach(cell => {
+                    cell.removeAttribute('contenteditable');
+                });
+                insertHtmlIntoVisualEditor(visualEditorEl, tableEl.outerHTML, savedRange);
+                updateFieldFromEditor(editorId, markdownFromVisual(visualEditorEl));
+                // Focus first cell and show resize overlay immediately
+                setTimeout(() => {
+                    const inserted = visualEditorEl.querySelector('table.editor-table');
+                    if (inserted) {
+                        ensureColgroup(inserted);
+                        showTableOverlay(inserted);
+                        inserted.querySelector('td, th')?.focus();
+                    }
+                }, 20);
+            }
+        } else if (savedSelectionStart !== null) {
+            // Code-editor / textarea path
+            const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+            const code = wrapper?.querySelector('[data-code-editor]');
+            if (code) {
+                insertAtCursor(code, token, true, savedSelectionStart, savedSelectionEnd);
+                code.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        } else if (visualEditorEl && isVisualMode) {
+            // Fallback: append at end
+            const parser = new DOMParser();
+            const parsedDoc = parser.parseFromString(html, 'text/html');
+            const tableEl = parsedDoc.querySelector('table');
+            if (tableEl) {
+                tableEl.classList.add('editor-table');
+                tableEl.style.tableLayout = 'fixed';
+                tableEl.querySelectorAll('td, th').forEach(cell => cell.removeAttribute('contenteditable'));
+                insertHtmlIntoVisualEditor(visualEditorEl, tableEl.outerHTML, null);
+                updateFieldFromEditor(editorId, markdownFromVisual(visualEditorEl));
+            }
+        } else {
+            // Last resort: token in code editor
+            const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
+            const code = wrapper?.querySelector('[data-code-editor]');
+            if (code) {
+                insertAtCursor(code, token, true, code.selectionStart, code.selectionEnd);
+                code.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
+
+        closeAdvancedEditorModal();
+        // Re-render the workbench so the inserted table is visible and
+        // the card reflects the updated question data.
+        render();
+    });
+}
+
+let activeTableCell = null;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NATIVE TABLE RESIZE ENGINE
+// Column resize: drag the right edge pseudo-element (::aft// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INTERACTIVE TABLE RESIZE ENGINE
+// Handles: column drag, row drag, whole-table corner/edge drag
+// All widths/heights are stored directly on col[style] and tr[style] so they
+// survive serialization to [table:base64] and restore perfectly on reload.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const TBL_COL_MIN = 40;   // px minimum column width
+const TBL_ROW_MIN = 30;   // px minimum row height
+const TBL_COL_ZONE = 8;   // px hit-zone at right edge of cell for col-resize
+const TBL_ROW_ZONE = 8;   // px hit-zone at bottom edge of row for row-resize
+
+// Active drag state
+let _drag = null;
+/*
+  _drag = {
+    type: 'col' | 'row' | 'table',
+    // col:
+    cell, colIndex, startX, startW, tableEl, colEls,
+    // row:
+    rowEl, startY, startH,
+    // table:
+    tableEl, handle, startX, startY, startW, startH, origColWidths
+  }
+*/
+
+// UI elements (resolved once)
+let _colGuide   = null;
+let _rowGuide   = null;
+let _tblOverlay = null;
+let _overlayTarget = null; // the table currently tracked by overlay
+
+function _getResizeEls() {
+    _colGuide   = _colGuide   || document.getElementById('tblColGuide');
+    _rowGuide   = _rowGuide   || document.getElementById('tblRowGuide');
+    _tblOverlay = _tblOverlay || document.getElementById('tblResizeOverlay');
+}
+
+// ── COLGROUP management ───────────────────────────────────────────────────────
+// Ensures every editor-table has a <colgroup> with one <col> per column.
+// Called after insert, after add/delete column, and on first focus.
+function ensureColgroup(table) {
+    if (!table) return;
+    const cols = table.rows[0] ? table.rows[0].cells.length : 0;
+    if (!cols) return;
+
+    let cg = table.querySelector(':scope > colgroup');
+    if (!cg) {
+        cg = document.createElement('colgroup');
+        table.insertBefore(cg, table.firstChild);
+    }
+
+    // Sync count
+    while (cg.children.length < cols) {
+        const col = document.createElement('col');
+        cg.appendChild(col);
+    }
+    while (cg.children.length > cols) {
+        cg.removeChild(cg.lastChild);
+    }
+
+    // If col elements have no width set, distribute evenly from actual cell widths
+    const colEls = Array.from(cg.children);
+    const hasWidths = colEls.some(c => c.style.width);
+    if (!hasWidths) {
+        // Read current widths from the first row's cells
+        const firstRow = table.rows[0];
+        colEls.forEach((col, i) => {
+            const cell = firstRow?.cells[i];
+            if (cell) {
+                col.style.width = cell.offsetWidth + 'px';
+            }
+        });
+    }
+}
+
+// Read column widths from colgroup
+function getColWidths(table) {
+    const cg = table.querySelector(':scope > colgroup');
+    if (!cg) return [];
+    return Array.from(cg.children).map(c => parseFloat(c.style.width) || 0);
+}
+
+// Write column widths to colgroup
+function setColWidths(table, widths) {
+    const cg = table.querySelector(':scope > colgroup');
+    if (!cg) return;
+    Array.from(cg.children).forEach((col, i) => {
+        if (widths[i] != null) col.style.width = widths[i] + 'px';
+    });
+}
+
+// ── Overlay management ────────────────────────────────────────────────────────
+function showTableOverlay(table) {
+    _getResizeEls();
+    if (!_tblOverlay || !table) return;
+    _overlayTarget = table;
+    _updateTableOverlay();
+    _tblOverlay.style.display = 'block';
+}
+
+function hideTableOverlay() {
+    _getResizeEls();
+    if (_tblOverlay) _tblOverlay.style.display = 'none';
+    _overlayTarget = null;
+}
+
+function _updateTableOverlay() {
+    if (!_tblOverlay || !_overlayTarget || !document.contains(_overlayTarget)) {
+        hideTableOverlay();
+        return;
+    }
+    const r = _overlayTarget.getBoundingClientRect();
+    _tblOverlay.style.left   = r.left   + 'px';
+    _tblOverlay.style.top    = r.top    + 'px';
+    _tblOverlay.style.width  = r.width  + 'px';
+    _tblOverlay.style.height = r.height + 'px';
+}
+
+// Keep overlay in sync when page scrolls/resizes
+(function() {
+    function track() {
+        if (_overlayTarget) requestAnimationFrame(_updateTableOverlay);
+    }
+    window.addEventListener('scroll', track, { passive: true, capture: true });
+    window.addEventListener('resize', track, { passive: true });
+})();
+
+// ── Guide line helpers ────────────────────────────────────────────────────────
+function _showColGuide(x) {
+    _getResizeEls();
+    if (!_colGuide) return;
+    _colGuide.style.left   = x + 'px';
+    _colGuide.style.top    = '0';
+    _colGuide.style.height = '100vh';
+    _colGuide.style.display = 'block';
+}
+function _hideColGuide() {
+    _getResizeEls();
+    if (_colGuide) _colGuide.style.display = 'none';
+}
+function _showRowGuide(y) {
+    _getResizeEls();
+    if (!_rowGuide) return;
+    _rowGuide.style.top   = y + 'px';
+    _rowGuide.style.left  = '0';
+    _rowGuide.style.width = '100vw';
+    _rowGuide.style.display = 'block';
+}
+function _hideRowGuide() {
+    _getResizeEls();
+    if (_rowGuide) _rowGuide.style.display = 'none';
+}
+
+// ── Hit-zone detection ────────────────────────────────────────────────────────
+function _isColResizeZone(cell, clientX) {
+    const r = cell.getBoundingClientRect();
+    return clientX >= r.right - TBL_COL_ZONE && clientX <= r.right + 4;
+}
+function _isRowResizeZone(tr, clientY) {
+    const r = tr.getBoundingClientRect();
+    return clientY >= r.bottom - TBL_ROW_ZONE && clientY <= r.bottom + 4;
+}
+
+// ── mousemove: cursor hints + live resize ─────────────────────────────────────
+document.addEventListener('mousemove', e => {
+    if (_drag) {
+        e.preventDefault();
+        _onDragMove(e);
+        return;
+    }
+    // Cursor hints (no button pressed)
+    if (e.buttons) return;
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (cell && cell.closest('table.editor-table')) {
+        if (_isColResizeZone(cell, e.clientX)) {
+            cell.style.cursor = 'col-resize';
+        } else {
+            cell.style.cursor = '';
+        }
+    }
+    const tr = e.target.closest && e.target.closest('tr');
+    if (tr && tr.closest('table.editor-table')) {
+        if (_isRowResizeZone(tr, e.clientY)) {
+            tr.style.cursor = 'row-resize';
+        } else {
+            tr.style.cursor = '';
+        }
+    }
+});
+
+function _onDragMove(e) {
+    if (_drag.type === 'col') {
+        const dx   = e.clientX - _drag.startX;
+        const newW = Math.max(TBL_COL_MIN, _drag.startW + dx);
+        // Apply to colgroup col element for reliable fixed layout
+        if (_drag.colEls[_drag.colIndex]) {
+            _drag.colEls[_drag.colIndex].style.width = newW + 'px';
+        }
+        // Also apply to the dragged cell directly for instant visual feedback
+        _drag.cell.style.width = newW + 'px';
+        // Move guide line
+        const r = _drag.cell.getBoundingClientRect();
+        _showColGuide(r.right);
+        // Highlight
+        _drag.cell.classList.add('col-resizing');
+        // Update overlay
+        if (_overlayTarget) _updateTableOverlay();
+    } else if (_drag.type === 'row') {
+        const dy   = e.clientY - _drag.startY;
+        const newH = Math.max(TBL_ROW_MIN, _drag.startH + dy);
+        _drag.rowEl.style.height = newH + 'px';
+        // Fix each cell height so content doesn't collapse the row
+        Array.from(_drag.rowEl.cells).forEach(c => { c.style.height = newH + 'px'; });
+        const r = _drag.rowEl.getBoundingClientRect();
+        _showRowGuide(r.bottom);
+        _drag.rowEl.classList.add('row-resizing');
+        if (_overlayTarget) _updateTableOverlay();
+    } else if (_drag.type === 'table') {
+        _onTableDragMove(e);
+    }
+}
+
+function _onTableDragMove(e) {
+    const handle = _drag.handle;
+    const table  = _drag.tableEl;
+    const editorDiv = table.closest('[data-visual-editor]');
+    const editorRect = editorDiv ? editorDiv.getBoundingClientRect() : null;
+    const maxW = editorRect ? editorRect.width - 4 : 2000;
+
+    let newW = _drag.startW;
+    let newH = _drag.startH;
+
+    if (handle === 'right') {
+        newW = Math.max(TBL_COL_MIN * 2, Math.min(maxW, _drag.startW + (e.clientX - _drag.startX)));
+    } else if (handle === 'bottom') {
+        newH = Math.max(TBL_ROW_MIN * (_drag.tableEl.rows.length || 1),
+                        _drag.startH + (e.clientY - _drag.startY));
+    } else if (handle === 'br') {
+        newW = Math.max(TBL_COL_MIN * 2, Math.min(maxW, _drag.startW + (e.clientX - _drag.startX)));
+        newH = Math.max(TBL_ROW_MIN,     _drag.startH + (e.clientY - _drag.startY));
+    } else if (handle === 'bl') {
+        newW = Math.max(TBL_COL_MIN * 2, Math.min(maxW, _drag.startW - (e.clientX - _drag.startX)));
+        newH = Math.max(TBL_ROW_MIN,     _drag.startH + (e.clientY - _drag.startY));
+    } else if (handle === 'tr') {
+        newW = Math.max(TBL_COL_MIN * 2, Math.min(maxW, _drag.startW + (e.clientX - _drag.startX)));
+    } else if (handle === 'tl') {
+        newW = Math.max(TBL_COL_MIN * 2, Math.min(maxW, _drag.startW - (e.clientX - _drag.startX)));
+    }
+
+    // Set table width
+    table.style.width = newW + 'px';
+
+    // Scale all columns proportionally
+    if (_drag.origColWidths.length > 0) {
+        const ratio = newW / _drag.startW;
+        const newWidths = _drag.origColWidths.map(w => Math.max(TBL_COL_MIN, Math.round(w * ratio)));
+        setColWidths(table, newWidths);
+    }
+
+    // If height changed, distribute equally across rows
+    if (newH !== _drag.startH && table.rows.length > 0) {
+        const rowH = Math.floor(newH / table.rows.length);
+        Array.from(table.rows).forEach(tr => {
+            tr.style.height = rowH + 'px';
+            Array.from(tr.cells).forEach(c => { c.style.height = rowH + 'px'; });
+        });
+    }
+
+    _updateTableOverlay();
+}
+
+// ── mousedown: start drag ─────────────────────────────────────────────────────
+document.addEventListener('mousedown', e => {
+    // Handle drag: corner or edge of table overlay
+    const handle = e.target.dataset && e.target.dataset.handle;
+    if (handle && _overlayTarget) {
+        e.preventDefault();
+        e.stopPropagation();
+        ensureColgroup(_overlayTarget);
+        _drag = {
+            type: 'table',
+            tableEl: _overlayTarget,
+            handle,
+            startX: e.clientX,
+            startY: e.clientY,
+            startW: _overlayTarget.offsetWidth,
+            startH: _overlayTarget.offsetHeight,
+            origColWidths: getColWidths(_overlayTarget),
+        };
+        return;
+    }
+
+    // Column resize: right-edge zone of a cell
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (cell && cell.closest('table.editor-table')) {
+        if (_isColResizeZone(cell, e.clientX)) {
+            e.preventDefault();
+            e.stopPropagation();
+            const table = cell.closest('table');
+            ensureColgroup(table);
+            const colEls    = Array.from(table.querySelector('colgroup')?.children || []);
+            const colIndex  = cell.cellIndex;
+            _drag = {
+                type: 'col',
+                cell,
+                colIndex,
+                startX: e.clientX,
+                startW: cell.offsetWidth,
+                tableEl: table,
+                colEls,
+            };
+            return;
+        }
+    }
+
+    // Row resize: bottom-edge zone of a row
+    const tr = e.target.closest && e.target.closest('tr');
+    if (tr && tr.closest('table.editor-table')) {
+        if (_isRowResizeZone(tr, e.clientY)) {
+            e.preventDefault();
+            e.stopPropagation();
+            _drag = {
+                type: 'row',
+                rowEl: tr,
+                startY: e.clientY,
+                startH: tr.offsetHeight,
+            };
+            return;
+        }
+    }
+}, true);
+
+// ── mouseup: commit and save ──────────────────────────────────────────────────
+document.addEventListener('mouseup', () => {
+    if (!_drag) return;
+    _hideColGuide();
+    _hideRowGuide();
+
+    if (_drag.type === 'col') {
+        _drag.cell.classList.remove('col-resizing');
+        syncTableToState(_drag.tableEl);
+    } else if (_drag.type === 'row') {
+        _drag.rowEl.classList.remove('row-resizing');
+        const tbl = _drag.rowEl.closest('table.editor-table');
+        if (tbl) syncTableToState(tbl);
+    } else if (_drag.type === 'table') {
+        syncTableToState(_drag.tableEl);
+    }
+
+    _drag = null;
+    _updateTableOverlay();
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RIGHT-CLICK context menu on editor-table cells
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+document.addEventListener('contextmenu', e => {
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (!cell || !cell.closest('table.editor-table')) return;
+    e.preventDefault();
+    activeTableCell = cell;
+    showTableContextMenu(e.clientX, e.clientY);
+}, true);
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('#tableContextMenu')) hideTableContextMenu();
+    if (!e.target.closest('#tableFloatingToolbar') && !e.target.closest('table.editor-table')
+        && !e.target.closest('#tblResizeOverlay')) {
+        hideTableFloatingToolbar();
+    }
+    // Focused table styling + overlay
+    const tbl = e.target.closest && e.target.closest('table.editor-table');
+    document.querySelectorAll('table.editor-table').forEach(t => t.classList.remove('tbl-focused'));
+    if (tbl) {
+        tbl.classList.add('tbl-focused');
+        ensureColgroup(tbl);
+        showTableOverlay(tbl);
+    } else if (!e.target.closest('#tblResizeOverlay')) {
+        hideTableOverlay();
+    }
+});
+
+document.addEventListener('keydown', e => {
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (!cell || !cell.closest('table.editor-table')) return;
+    activeTableCell = cell;
+    // Tab / Shift+Tab navigation between cells
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        const tbl = cell.closest('table');
+        const cells = Array.from(tbl.querySelectorAll('td, th'));
+        const idx = cells.indexOf(cell);
+        const next = e.shiftKey ? cells[idx - 1] : cells[idx + 1];
+        if (next) {
+            next.focus();
+        } else if (!e.shiftKey) {
+            // Tab on last cell → add a new row
+            tableInsertRowBelow();
+            const newCells = Array.from(tbl.querySelectorAll('td, th'));
+            newCells[idx + 1]?.focus();
+        }
+    }
+}, true);
+
+function showTableContextMenu(x, y) {
+    const menu = document.getElementById('tableContextMenu');
+    if (!menu) return;
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.style.display = 'flex';
+    menu.removeAttribute('hidden');
+}
+
+function hideTableContextMenu() {
+    const menu = document.getElementById('tableContextMenu');
+    if (!menu) return;
+    menu.setAttribute('hidden', 'true');
+    menu.style.display = 'none';
+}
+
+// syncTableToState: serializes a live native editor-table back to state.
+// Called after any structural change (resize, add/delete row/col, merge, split).
+function syncTableToState(table) {
+    if (!table || !document.contains(table)) return;
+    const visualEditor = table.closest('[data-visual-editor]');
+    const editorId = visualEditor?.closest('[data-rich-editor]')?.dataset.editorId;
+    if (visualEditor && editorId) {
+        updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+    }
+}
+
+// Legacy alias kept for any remaining callers
+function saveAndSyncTable(table) { syncTableToState(table); }
+
+function tableInsertRowAbove() {
+    if (!activeTableCell) return;
+    const tr = activeTableCell.closest('tr');
+    const table = tr?.closest('table');
+    if (!tr || !table) return;
+    const newTr = document.createElement('tr');
+    const cellCount = tr.cells.length;
+    for (let i = 0; i < cellCount; i++) {
+        const newCell = document.createElement(tr.cells[i].tagName.toLowerCase());
+        newCell.innerHTML = '\u00a0'; // non-breaking space placeholder
+        newTr.appendChild(newCell);
+    }
+    tr.parentNode.insertBefore(newTr, tr);
+    syncTableToState(table);
+}
+
+function tableInsertRowBelow() {
+    if (!activeTableCell) return;
+    const tr = activeTableCell.closest('tr');
+    const table = tr?.closest('table');
+    if (!tr || !table) return;
+    const newTr = document.createElement('tr');
+    const cellCount = tr.cells.length;
+    for (let i = 0; i < cellCount; i++) {
+        const newCell = document.createElement('td');
+        newCell.innerHTML = '\u00a0';
+        newTr.appendChild(newCell);
+    }
+    tr.parentNode.insertBefore(newTr, tr.nextSibling);
+    newTr.cells[0]?.focus();
+    syncTableToState(table);
+}
+
+function tableInsertColLeft() {
+    if (!activeTableCell) return;
+    const cellIndex = activeTableCell.cellIndex;
+    const table = activeTableCell.closest('table');
+    if (!table) return;
+    Array.from(table.rows).forEach(row => {
+        const newCell = document.createElement(row.cells[cellIndex]?.tagName.toLowerCase() || 'td');
+        newCell.innerHTML = '\u00a0';
+        row.insertBefore(newCell, row.cells[cellIndex]);
+    });
+    syncTableToState(table);
+}
+
+function tableInsertColRight() {
+    if (!activeTableCell) return;
+    const cellIndex = activeTableCell.cellIndex;
+    const table = activeTableCell.closest('table');
+    if (!table) return;
+    Array.from(table.rows).forEach(row => {
+        const newCell = document.createElement('td');
+        newCell.innerHTML = '\u00a0';
+        row.insertBefore(newCell, row.cells[cellIndex] ? row.cells[cellIndex].nextSibling : null);
+    });
+    syncTableToState(table);
+}
+
+function tableDeleteRow() {
+    if (!activeTableCell) return;
+    const tr = activeTableCell.closest('tr');
+    const table = tr?.closest('table');
+    if (!tr || !table) return;
+    const sibling = tr.nextElementSibling || tr.previousElementSibling;
+    tr.remove();
+    if (sibling) sibling.cells[0]?.focus();
+    syncTableToState(table);
+}
+
+function tableDeleteCol() {
+    if (!activeTableCell) return;
+    const cellIndex = activeTableCell.cellIndex;
+    const table = activeTableCell.closest('table');
+    if (!table) return;
+    Array.from(table.rows).forEach(row => {
+        if (row.cells[cellIndex]) row.cells[cellIndex].remove();
+    });
+    syncTableToState(table);
+}
+
+function tableDeleteTable() {
+    if (!activeTableCell) return;
+    // Support both native editor-table and legacy .table-token wrappers
+    const table = activeTableCell.closest('table.editor-table');
+    const token = activeTableCell.closest('.table-token');
+    const visualEditor = activeTableCell.closest('[data-visual-editor]');
+    const editorId = visualEditor?.closest('[data-rich-editor]')?.dataset.editorId;
+    if (table) {
+        table.remove();
+    } else if (token) {
+        token.remove();
+    }
+    if (visualEditor && editorId) {
+        updateFieldFromEditor(editorId, markdownFromVisual(visualEditor));
+    }
+    hideTableFloatingToolbar();
+    activeTableCell = null;
+}
+
+function tableMergeCells() {
+    if (!activeTableCell) return;
+    const cols = parseInt(prompt('Merge how many columns? (colspan)', activeTableCell.colSpan || 1), 10);
+    const rows = parseInt(prompt('Merge how many rows? (rowspan)', activeTableCell.rowSpan || 1), 10);
+    if (!isNaN(cols) && cols > 0) activeTableCell.colSpan = cols;
+    if (!isNaN(rows) && rows > 0) activeTableCell.rowSpan = rows;
+    syncTableToState(activeTableCell.closest('table'));
+}
+
+function tableSplitCells() {
+    if (!activeTableCell) return;
+    activeTableCell.colSpan = 1;
+    activeTableCell.rowSpan = 1;
+    syncTableToState(activeTableCell.closest('table'));
+}
+
+function tableEqualCols() {
+    if (!activeTableCell) return;
+    const table = activeTableCell.closest('table.editor-table');
+    if (!table) return;
+    const cols = table.rows[0]?.cells.length || 0;
+    if (!cols) return;
+    ensureColgroup(table);
+    const totalW = table.offsetWidth || 600;
+    const colW   = Math.floor(totalW / cols);
+    const colEls = Array.from(table.querySelector('colgroup')?.children || []);
+    colEls.forEach(col => { col.style.width = colW + 'px'; });
+    table.style.tableLayout = 'fixed';
+    _updateTableOverlay();
+    syncTableToState(table);
+}
+
+// tableAutoFit: three layout modes
+function tableAutoFit(mode) {
+    if (!activeTableCell) return;
+    const table = activeTableCell.closest('table.editor-table');
+    if (!table) return;
+    ensureColgroup(table);
+    const colEls = Array.from(table.querySelector('colgroup')?.children || []);
+
+    if (mode === 'window') {
+        // Full editor width, equal columns
+        const editorW = table.closest('[data-visual-editor]')?.offsetWidth || 600;
+        table.style.width = '100%';
+        const colW = Math.floor(editorW / (colEls.length || 1));
+        colEls.forEach(col => { col.style.width = colW + 'px'; });
+        table.style.tableLayout = 'fixed';
+
+    } else if (mode === 'content') {
+        // Let browser size to content
+        table.style.width = '';
+        table.style.tableLayout = 'auto';
+        colEls.forEach(col => { col.style.width = ''; });
+        // Reread widths after auto layout
+        requestAnimationFrame(() => {
+            const firstRow = table.rows[0];
+            if (firstRow) {
+                colEls.forEach((col, i) => {
+                    col.style.width = (firstRow.cells[i]?.offsetWidth || 80) + 'px';
+                });
+                table.style.tableLayout = 'fixed';
+            }
+            _updateTableOverlay();
+            syncTableToState(table);
+        });
+        return;
+
+    } else if (mode === 'equal') {
+        tableEqualCols();
+        return;
+
+    } else if (mode === 'fixed') {
+        // Keep current widths but lock to fixed layout
+        if (!colEls.some(c => c.style.width)) {
+            const firstRow = table.rows[0];
+            if (firstRow) {
+                colEls.forEach((col, i) => {
+                    col.style.width = (firstRow.cells[i]?.offsetWidth || 80) + 'px';
+                });
+            }
+        }
+        table.style.tableLayout = 'fixed';
+
+    } else if (mode === 'equalRowHeight') {
+        if (!table.rows.length) return;
+        const totalH = table.offsetHeight;
+        const rowH   = Math.floor(totalH / table.rows.length);
+        Array.from(table.rows).forEach(tr => {
+            tr.style.height = rowH + 'px';
+            Array.from(tr.cells).forEach(c => { c.style.height = rowH + 'px'; });
+        });
+    }
+
+    _updateTableOverlay();
+    syncTableToState(table);
+}
+
+function initTableContextMenu() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+
+    document.getElementById('tableContextInsertRowAbove')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertRowAbove();
+    });
+    document.getElementById('tableContextInsertRowBelow')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertRowBelow();
+    });
+    document.getElementById('tableContextInsertColLeft')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertColLeft();
+    });
+    document.getElementById('tableContextInsertColRight')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableInsertColRight();
+    });
+    document.getElementById('tableContextDeleteRow')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableDeleteRow();
+    });
+    document.getElementById('tableContextDeleteCol')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableDeleteCol();
+    });
+    document.getElementById('tableContextDeleteTable')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableDeleteTable();
+    });
+    document.getElementById('tableContextMerge')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableMergeCells();
+    });
+    document.getElementById('tableContextSplit')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTableContextMenu();
+        tableSplitCells();
+    });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FLOATING TABLE TOOLBAR
+// Appears above the active editor-table whenever the cursor is inside a cell.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+let _toolbarTargetTable = null;
+
+function showTableFloatingToolbar(table) {
+    const toolbar = document.getElementById('tableFloatingToolbar');
+    if (!toolbar || !table) return;
+    _toolbarTargetTable = table;
+    toolbar.removeAttribute('hidden');
+    positionTableFloatingToolbar(table, toolbar);
+}
+
+function hideTableFloatingToolbar() {
+    const toolbar = document.getElementById('tableFloatingToolbar');
+    if (toolbar) toolbar.setAttribute('hidden', 'true');
+    _toolbarTargetTable = null;
+}
+
+function positionTableFloatingToolbar(table, toolbar) {
+    if (!table || !toolbar) return;
+    const rect = table.getBoundingClientRect();
+    const tbH = toolbar.offsetHeight || 40;
+    const GAP = 6;
+    let top = rect.top - tbH - GAP;
+    // If not enough room above, show below instead
+    if (top < 8) top = rect.bottom + GAP;
+    // Center horizontally over table, clamped to viewport
+    let left = rect.left + (rect.width / 2) - (toolbar.offsetWidth / 2);
+    left = Math.max(8, Math.min(left, window.innerWidth - toolbar.offsetWidth - 8));
+    toolbar.style.top  = top  + 'px';
+    toolbar.style.left = left + 'px';
+}
+
+function initTableFloatingToolbar() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const toolbar = document.getElementById('tableFloatingToolbar');
+    if (!toolbar) return;
+
+    // Wire all toolbar buttons
+    const wire = (id, fn) => {
+        document.getElementById(id)?.addEventListener('mousedown', e => {
+            e.preventDefault(); // prevent losing focus / selection
+            e.stopPropagation();
+        });
+        document.getElementById(id)?.addEventListener('click', e => {
+            e.stopPropagation();
+            fn();
+            // Re-position after DOM change
+            if (_toolbarTargetTable && document.contains(_toolbarTargetTable)) {
+                positionTableFloatingToolbar(_toolbarTargetTable, toolbar);
+            } else {
+                hideTableFloatingToolbar();
+            }
+        });
+    };
+
+    wire('tblToolRowAbove',    tableInsertRowAbove);
+    wire('tblToolRowBelow',    tableInsertRowBelow);
+    wire('tblToolDelRow',      tableDeleteRow);
+    wire('tblToolColLeft',     tableInsertColLeft);
+    wire('tblToolColRight',    tableInsertColRight);
+    wire('tblToolDelCol',      tableDeleteCol);
+    wire('tblToolMerge',       tableMergeCells);
+    wire('tblToolSplit',       tableSplitCells);
+    wire('tblToolDeleteTable', tableDeleteTable);
+
+    // Layout dropdown toggle
+    const propsBtn  = document.getElementById('tblToolProps');
+    const propsMenu = document.getElementById('tblToolPropsMenu');
+    if (propsBtn && propsMenu) {
+        propsBtn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+        propsBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            const hidden = propsMenu.hasAttribute('hidden');
+            if (hidden) propsMenu.removeAttribute('hidden');
+            else        propsMenu.setAttribute('hidden', 'true');
+        });
+        propsMenu.querySelectorAll('[data-autofit]').forEach(item => {
+            item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+            item.addEventListener('click', e => {
+                e.stopPropagation();
+                propsMenu.setAttribute('hidden', 'true');
+                tableAutoFit(item.dataset.autofit);
+                if (_toolbarTargetTable && document.contains(_toolbarTargetTable)) {
+                    positionTableFloatingToolbar(_toolbarTargetTable, toolbar);
+                }
+            });
+        });
+        // Close dropdown when clicking outside
+        document.addEventListener('click', e => {
+            if (!e.target.closest('#tblToolPropsWrap')) {
+                propsMenu.setAttribute('hidden', 'true');
+            }
+        });
+    }
+
+    // Show toolbar when cursor enters any editor-table cell
+    document.addEventListener('focusin', e => {
+        const cell = e.target.closest && e.target.closest('td, th');
+        const table = cell?.closest('table.editor-table');
+        if (table) {
+            activeTableCell = cell;
+            showTableFloatingToolbar(table);
+            ensureColgroup(table);
+            showTableOverlay(table);
+        } else if (!e.target.closest('#tableFloatingToolbar') && !e.target.closest('#tblResizeOverlay')) {
+            hideTableFloatingToolbar();
+        }
+    });
+
+    // Re-position when scrolling or resizing so toolbar tracks the table
+    window.addEventListener('scroll', () => {
+        if (_toolbarTargetTable && document.contains(_toolbarTargetTable)) {
+            positionTableFloatingToolbar(_toolbarTargetTable, toolbar);
+        }
+    }, { passive: true });
+    window.addEventListener('resize', () => {
+        if (_toolbarTargetTable && document.contains(_toolbarTargetTable)) {
+            positionTableFloatingToolbar(_toolbarTargetTable, toolbar);
+        }
+    }, { passive: true });
 }
 
 function duplicateSection() {
@@ -2830,6 +4769,27 @@ function findQuestion(qid) {
 }
 
 function handlePaste(event) {
+    if (state.isHoveringLogoArea) {
+        const item = [...(event.clipboardData?.items || [])].find(entry => entry.type.startsWith('image/'));
+        if (item) {
+            event.preventDefault();
+            const file = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = () => {
+                const paper = getActivePaper();
+                if (paper) {
+                    paper.logo = reader.result;
+                    save();
+                    render();
+                    toast('Logo pasted');
+                }
+            };
+            reader.readAsDataURL(file);
+        } else {
+            toast('Clipboard does not contain an image');
+        }
+        return;
+    }
     const target = event.target;
     const codeEditor = target instanceof HTMLTextAreaElement ? target.closest('[data-code-editor]') : null;
     const visualEditor = target instanceof HTMLElement ? target.closest('[data-visual-editor]') : null;
@@ -3152,18 +5112,19 @@ async function compileAllMermaidDiagramsInPaper(paper) {
     }
 }
 
-async function exportWord() {
+function exportWord() {
     const activePaper = getActivePaper();
     if (!activePaper) return;
-    toast('Generating Word document...');
     
-    // Deep copy to prevent mutating active state
-    const paper = deepCopy(activePaper);
-    await compileAllMermaidDiagramsInPaper(paper);
-    
-    const blob = buildDocxBlob(paper);
-    downloadBlob(blob, `${fileName(paper.title)}.docx`);
-    toast('DOCX exported');
+    const modal = document.getElementById('wordExportModal');
+    if (modal) {
+        const lastOption = state.lastWordExportOption || 'paperOnly';
+        const radio = modal.querySelector(`input[name="wordExportOption"][value="${lastOption}"]`);
+        if (radio) {
+            radio.checked = true;
+        }
+        modal.removeAttribute('hidden');
+    }
 }
 
 function buildDocxBlob(paper) {
@@ -3220,26 +5181,335 @@ function buildDocumentRels(media) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${imageRels}</Relationships>`;
 }
 
+function docxTableFromBase64Html(base64Html) {
+    try {
+        const html = decodeURIComponent(escape(atob(base64Html)));
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const tableEl = doc.querySelector('table');
+        if (!tableEl) return '';
+
+        // DOCX uses twips (15 twips per CSS pixel). Keep the editor's current dimensions instead of normalizing every table to a default width.
+        const pxToDxa = value => Math.max(1, Math.round((parseFloat(value) || 0) * 15));
+        const DOCX_TOTAL_W = 9000;
+        const colEls = Array.from(doc.querySelectorAll('colgroup col'));
+        let colWidthsDxa = [];  // widths in dxa (twips)
+
+        if (colEls.length > 0) {
+            // The colgroup is the resize engine's persisted source of truth.
+            const pxWidths = colEls.map(c => parseFloat(c.style.width) || 0);
+            const totalPx  = pxWidths.reduce((s, w) => s + w, 0);
+            if (totalPx > 0) {
+                colWidthsDxa = pxWidths.map(pxToDxa);
+            }
+        }
+
+        const physicalColumnCount = Math.max(colWidthsDxa.length, ...Array.from(tableEl.rows).map(row => Array.from(row.cells).reduce((count, cell) => count + (cell.colSpan || 1), 0)), 1);
+        while (colWidthsDxa.length < physicalColumnCount) colWidthsDxa.push(Math.floor(DOCX_TOTAL_W / physicalColumnCount));
+        const gridXml = `<w:tblGrid>${colWidthsDxa.map(width => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>`;
+        const rows = tableEl.querySelectorAll('tr');
+        let rowsXml = '';
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('th, td');
+            let cellsXml = '';
+            let gridColumn = 0;
+
+            cells.forEach((cell, ci) => {
+                const cellText = cell.textContent || '';
+                const textRuns = docxTextRunsFromMarkdownText(cellText);
+
+                // Use saved col width if available, else distribute equally
+                const colspanCount = cell.colSpan || 1;
+                const cellWidth = colWidthsDxa.slice(gridColumn, gridColumn + colspanCount).reduce((total, width) => total + width, 0) ||
+                    Math.floor(DOCX_TOTAL_W / (cells.length || 1));
+
+                const isHeader = cell.tagName.toLowerCase() === 'th';
+                const cellBg   = isHeader ? '<w:shd w:val="clear" w:color="auto" w:fill="F1F5F9"/>' : '';
+
+                // Preserve colspan/rowspan
+                const colspan = cell.colSpan > 1 ? `<w:gridSpan w:val="${cell.colSpan}"/>` : '';
+                const rowspan = cell.rowSpan > 1 ? `<w:vMerge w:val="restart"/>` : '';
+
+                // Read cell alignment
+                const align = cell.style.textAlign === 'justify' ? 'both' : (cell.style.textAlign || 'left');
+                const verticalAlign = cell.style.verticalAlign === 'middle' ? 'center' : (cell.style.verticalAlign === 'bottom' ? 'bottom' : 'top');
+                const paddingTop = pxToDxa(cell.style.paddingTop || 7);
+                const paddingRight = pxToDxa(cell.style.paddingRight || 11);
+                const paddingBottom = pxToDxa(cell.style.paddingBottom || 7);
+                const paddingLeft = pxToDxa(cell.style.paddingLeft || 11);
+
+                cellsXml += `
+                    <w:tc>
+                        <w:tcPr>
+                            <w:tcW w:w="${cellWidth}" w:type="dxa"/>
+                            ${colspan}${rowspan}${cellBg}
+                            <w:tcMar><w:top w:w="${paddingTop}" w:type="dxa"/><w:right w:w="${paddingRight}" w:type="dxa"/><w:bottom w:w="${paddingBottom}" w:type="dxa"/><w:left w:w="${paddingLeft}" w:type="dxa"/></w:tcMar>
+                            <w:tcBorders>
+                                <w:top    w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                                <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                                <w:left   w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                                <w:right  w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                            </w:tcBorders>
+                            <w:vAlign w:val="${verticalAlign}"/>
+                        </w:tcPr>
+                        ${docxParagraph(textRuns, { align, before: 80, after: 80 })}
+                    </w:tc>
+                `;
+                gridColumn += colspanCount;
+            });
+
+            // Preserve row height if set
+            const rowHeightPx = parseFloat(row.style.height);
+            const rowHeightDxa = rowHeightPx > 0
+                ? `<w:trHeight w:val="${pxToDxa(rowHeightPx)}" w:hRule="exact"/>` : '';
+
+            rowsXml += `<w:tr>${rowHeightDxa ? `<w:trPr>${rowHeightDxa}</w:trPr>` : ''}${cellsXml}</w:tr>`;
+        });
+
+        // Preserve table width if set
+        const tblWidthPx = parseFloat(tableEl.style.width);
+        const tblWidthDxa = tblWidthPx > 0
+            ? `<w:tblW w:w="${pxToDxa(tblWidthPx)}" w:type="dxa"/>`
+            : `<w:tblW w:w="${DOCX_TOTAL_W}" w:type="dxa"/>`;
+
+        return `
+            <w:tbl>
+                <w:tblPr>
+                    ${tblWidthDxa}
+                    <w:tblBorders>
+                        <w:top    w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:left   w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:right  w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                        <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                    </w:tblBorders>
+                    <w:tblLayout w:type="fixed"/>
+                </w:tblPr>
+                ${gridXml}
+                ${rowsXml}
+            </w:tbl>
+        `;
+    } catch (err) {
+        console.error('Error generating docx table:', err);
+        return '';
+    }
+}
+
+function docxQuestionParagraphs(questionNumber, markdown, media) {
+    const segments = parseDocxMarkdown(markdown);
+    let xml = '';
+    let currentRuns = [];
+    let isFirstParagraph = true;
+    
+    const commitParagraph = () => {
+        if (currentRuns.length === 0 && !isFirstParagraph) return;
+        
+        const prefixRuns = [];
+        if (isFirstParagraph) {
+            prefixRuns.push(docxTextRun(`${questionNumber}) `, { bold: true }));
+        }
+        
+        xml += docxParagraph([...prefixRuns, ...currentRuns], { after: 50 });
+        currentRuns = [];
+        isFirstParagraph = false;
+    };
+    
+    segments.forEach((segment) => {
+        if (segment.type === 'text') {
+            const parts = segment.text.split('\n');
+            parts.forEach((part, index) => {
+                if (index > 0) {
+                    commitParagraph();
+                }
+                if (part) {
+                    currentRuns.push(...docxTextRunsFromMarkdownText(part));
+                }
+            });
+        } else if (segment.type === 'math') {
+            currentRuns.push(docxMath(segment.latex));
+        } else if (segment.type === 'image') {
+            commitParagraph();
+            
+            let w = 450;
+            let h = 300;
+            if (segment.width && segment.height) {
+                w = Number(segment.width) || 450;
+                h = Number(segment.height) || 300;
+            } else if (segment.width) {
+                w = Number(segment.width) || 450;
+                h = Math.round(w * 0.66);
+            }
+            const imgRun = docxImageRun(segment.src, media, w, h);
+            if (imgRun) {
+                xml += docxParagraph([imgRun], { align: 'center', before: 50, after: 50 });
+            }
+        } else if (segment.type === 'mermaid') {
+            commitParagraph();
+            xml += docxParagraph([docxTextRun('[Mermaid Diagram]', { italic: true })], { after: 50 });
+        } else if (segment.type === 'table') {
+            commitParagraph();
+            xml += docxTableFromBase64Html(segment.base64Html);
+            isFirstParagraph = false;
+        }
+    });
+    
+    commitParagraph();
+    return xml;
+}
+
 function buildDocumentXml(paper, media) {
     let body = '';
-    body += docxParagraph([docxTextRun(paper.title || 'Question Paper', { bold: true, size: 30 })], { align: 'center', after: 80 });
-    body += docxParagraph([
-        docxTextRun(`Class: ${paper.meta.className || ''}    Subject: ${paper.meta.subject || ''}    ${paper.meta.testName || ''}    Time: ${paper.meta.duration || ''}    Marks: ${paper.meta.marks || totalMarks(paper)}`, { size: 20 })
-    ], { align: 'center', after: 120 });
-    body += docxParagraph([docxTextRun('Name: ________________________________', { size: 22 })], { after: 120 });
+    
+    const hasLogo = !!paper.logo;
+    const hasInst = !!(paper.meta.institutionName || paper.meta.institutionSubtitle);
+    
+    if (hasLogo || hasInst) {
+        if (hasLogo) {
+            const w = paper.logoWidth || 120;
+            const h = paper.logoHeight || 120;
+            const imgRun = docxImageRun(paper.logo, media, w, h);
+            
+            const instRuns = [];
+            if (paper.meta.institutionName) {
+                instRuns.push(docxParagraph([docxTextRun(paper.meta.institutionName, { bold: true, size: 28 })], { align: 'center', after: 40 }));
+            }
+            if (paper.meta.institutionSubtitle) {
+                instRuns.push(docxParagraph([docxTextRun(paper.meta.institutionSubtitle, { size: 20, italic: true })], { align: 'center', after: 40 }));
+            }
+            
+            body += `<w:tbl>
+                <w:tblPr>
+                    <w:tblW w:w="0" w:type="auto"/>
+                    <w:tblBorders>
+                        <w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/>
+                        <w:insideH w:val="none"/><w:insideV w:val="none"/>
+                    </w:tblBorders>
+                </w:tblPr>
+                <w:tblGrid>
+                    <w:gridCol w:w="2160"/>
+                    <w:gridCol w:w="7200"/>
+                </w:tblGrid>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:w="2160" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
+                        ${docxParagraph([imgRun], { align: 'left' })}
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:w="7200" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
+                        ${instRuns.join('')}
+                    </w:tc>
+                </w:tr>
+            </w:tbl>`;
+        } else {
+            const instRuns = [];
+            if (paper.meta.institutionName) {
+                instRuns.push(docxParagraph([docxTextRun(paper.meta.institutionName, { bold: true, size: 28 })], { align: 'center', after: 40 }));
+            }
+            if (paper.meta.institutionSubtitle) {
+                instRuns.push(docxParagraph([docxTextRun(paper.meta.institutionSubtitle, { size: 20, italic: true })], { align: 'center', after: 40 }));
+            }
+            body += instRuns.join('');
+        }
+    }
+    
+    body += docxParagraph([docxTextRun(paper.title || 'Question Paper', { bold: true, size: 30 })], { align: 'center', before: 80, after: 80 });
+
+    const metaRows = [
+        [
+            { label: 'Class', value: paper.meta.className },
+            { label: 'Subject', value: paper.meta.subject },
+            { label: 'Test', value: paper.meta.testName }
+        ],
+        [
+            { label: 'Time', value: paper.meta.duration },
+            { label: 'Marks', value: paper.meta.marks },
+            { label: 'Date', value: paper.meta.date }
+        ]
+    ];
+    
+    body += `<w:tbl>
+        <w:tblPr>
+            <w:tblW w:w="0" w:type="auto"/>
+            <w:tblBorders>
+                <w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+                <w:left w:val="none"/><w:right w:val="none"/>
+                <w:insideH w:val="none"/><w:insideV w:val="none"/>
+            </w:tblBorders>
+        </w:tblPr>
+        <w:tblGrid>
+            <w:gridCol w:w="3120"/>
+            <w:gridCol w:w="3120"/>
+            <w:gridCol w:w="3120"/>
+        </w:tblGrid>`;
+        
+    metaRows.forEach(row => {
+        let rowXml = '';
+        row.forEach(cell => {
+            const cellRuns = [
+                docxTextRun(`${cell.label}: `, { bold: true, size: 20 }),
+                docxTextRun(cell.value || '', { size: 20 })
+            ];
+            rowXml += `<w:tc>
+                <w:tcPr><w:tcW w:w="3120" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
+                ${docxParagraph(cellRuns, { before: 40, after: 40 })}
+            </w:tc>`;
+        });
+        body += `<w:tr>${rowXml}</w:tr>`;
+    });
+    body += `</w:tbl>`;
+
+    body += docxParagraph([docxTextRun('Name: ________________________________', { size: 22 })], { before: 80, after: 120 });
+    
     if (paper.meta.instructions) {
         body += docxParagraph([docxTextRun('Instructions: ', { bold: true }), ...docxInlineFromMarkdown(paper.meta.instructions, media)], { after: 100 });
     }
+    
     let questionNumber = 0;
     paper.sections.forEach(section => {
         if (!section.questions.length) return;
         body += docxParagraph([docxTextRun(section.name, { bold: true, size: 24 })], { before: 120, after: 70 });
         section.questions.forEach(question => {
             questionNumber += 1;
-            body += docxParagraph([docxTextRun(`${questionNumber}) `, { bold: true }), ...docxInlineFromMarkdown(question.text || '', media)], { after: 50 });
+            body += docxQuestionParagraphs(questionNumber, question.text || '', media);
             body += docxOptionsParagraphs(question, media);
         });
     });
+    
+    if (paper.includeAnswerKey) {
+        body += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+        body += docxParagraph([docxTextRun('ANSWER KEY', { bold: true, size: 28 })], { align: 'center', after: 120 });
+        
+        // Reuse the existing correctIndex values and keep question numbers
+        // sequential across the section groups, matching the question paper.
+        const ANSWERS_PER_ROW = 5;
+        let answerQuestionNumber = 0;
+        paper.sections.forEach(section => {
+            if (!section.questions.length) return;
+            body += docxParagraph([docxTextRun(section.name, { bold: true, size: 22 })], { before: 80, after: 30 });
+
+            const answerEntries = section.questions.map(question => {
+                answerQuestionNumber += 1;
+                const answerLabel = LABELS[question.correctIndex] || 'A';
+                return `${answerQuestionNumber} - ${answerLabel}`;
+            });
+
+            // Keep each compact line as one DOCX paragraph. Tabs provide even,
+            // exam-style columns and rows wrap predictably after five answers.
+            for (let index = 0; index < answerEntries.length; index += ANSWERS_PER_ROW) {
+                const row = answerEntries.slice(index, index + ANSWERS_PER_ROW);
+                const runs = [];
+                row.forEach((entry, entryIndex) => {
+                    if (entryIndex) runs.push('<w:r><w:tab/></w:r>');
+                    runs.push(docxTextRun(entry, { size: 20 }));
+                });
+                body += docxParagraph(runs, { align: 'left', before: 0, after: 20 });
+            }
+        });
+    }
+
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${DOCX_NS.w}" xmlns:r="${DOCX_NS.r}" xmlns:wp="${DOCX_NS.wp}" xmlns:a="${DOCX_NS.a}" xmlns:pic="${DOCX_NS.pic}" xmlns:m="${DOCX_NS.m}">
 <w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="360" w:footer="360" w:gutter="0"/></w:sectPr></w:body>
@@ -3336,7 +5606,7 @@ function docxInlineFromMarkdown(markdown, media) {
 function parseDocxMarkdown(markdown) {
     const source = String(markdown || '');
     const segments = [];
-    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]/g;
+    const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\[table:([A-Za-z0-9+/=]+)\]/g;
     let last = 0;
     let match;
     while ((match = tokenRe.exec(source))) {
@@ -3365,6 +5635,8 @@ function parseDocxMarkdown(markdown) {
             } else {
                 segments.push({ type: 'mermaid', base64: code });
             }
+        } else if (match[7]) {
+            segments.push({ type: 'table', base64Html: match[7] });
         }
         last = tokenRe.lastIndex;
     }
@@ -3801,10 +6073,30 @@ function renderMathSoon() {
 }
 
 function toast(message) {
-    els.toast.textContent = message;
+    if (!els.toast) return;
+    // Clear duplicates or consecutive repeats
+    if (els.toast.classList.contains('show') && els.toast.textContent.includes(message)) {
+        return;
+    }
+    
+    els.toast.innerHTML = `${message} <span class="toast-close" style="margin-left: 10px; cursor: pointer; font-weight: bold; opacity: 0.8; padding: 2px 6px;">&times;</span>`;
     els.toast.classList.add('show');
+    els.toast.style.pointerEvents = 'auto';
+    
+    const closeBtn = els.toast.querySelector('.toast-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            els.toast.classList.remove('show');
+            els.toast.style.pointerEvents = 'none';
+        });
+    }
+    
     clearTimeout(els.toast._timer);
-    els.toast._timer = setTimeout(() => els.toast.classList.remove('show'), 2200);
+    els.toast._timer = setTimeout(() => {
+        els.toast.classList.remove('show');
+        els.toast.style.pointerEvents = 'none';
+    }, 4000);
 }
 
 function deepCopy(value) {
