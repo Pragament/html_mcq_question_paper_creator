@@ -123,6 +123,42 @@ document.getElementById('tagScrollDownBtn').addEventListener('click', () => {
     document.getElementById('tagFilterContainer')?.scrollBy({ top: 40, behavior: 'smooth' });
 });
 
+
+// Mobile/tablet collapsible sidebar drawer event listeners
+const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener('click', () => {
+        const sidebar = document.getElementById('paperSidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar && backdrop) {
+            sidebar.classList.toggle('open');
+            backdrop.classList.toggle('active');
+            sidebarToggleBtn.setAttribute('aria-expanded', sidebar.classList.contains('open') ? 'true' : 'false');
+        }
+    });
+}
+
+const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+if (closeSidebarBtn) {
+    closeSidebarBtn.addEventListener('click', () => {
+        const sidebar = document.getElementById('paperSidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar) sidebar.classList.remove('open');
+        if (backdrop) backdrop.classList.remove('active');
+        if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+    });
+}
+
+const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', () => {
+        const sidebar = document.getElementById('paperSidebar');
+        if (sidebar) sidebar.classList.remove('open');
+        sidebarBackdrop.classList.remove('active');
+        if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+    });
+}
+
 document.addEventListener('paste', handlePaste);
 
 load();
@@ -270,6 +306,17 @@ function render() {
     save();
     renderMathSoon();
     renderMermaidSoon();
+
+    // Auto-close sidebar drawer on screens < 1024px after selection/action
+    if (window.innerWidth < 1024) {
+        const sidebar = document.querySelector('.paper-sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar && sidebar.classList.contains('open')) {
+            sidebar.classList.remove('open');
+            if (backdrop) backdrop.classList.remove('active');
+            if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+        }
+    }
 }
 
 function renderPaperList() {
