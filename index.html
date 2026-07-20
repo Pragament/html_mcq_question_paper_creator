@@ -252,6 +252,7 @@
 </head>
 <body>
     <header class="topbar">
+        <button type="button" class="sidebar-toggle-btn" id="sidebarToggleBtn" aria-label="Open question papers sidebar" aria-controls="paperSidebar" aria-expanded="false">☰</button>
         <div>
             <h1>MCQ Paper Studio</h1>
             <p>Fast paper creation for school teachers</p>
@@ -267,9 +268,10 @@
     </header>
 
     <div class="app-shell">
-        <aside class="paper-sidebar">
+        <aside class="paper-sidebar" id="paperSidebar">
             <div class="sidebar-head">
                 <span>Question Papers</span>
+                <button type="button" class="close-sidebar-btn" id="closeSidebarBtn" aria-label="Close question papers sidebar">&times;</button>
                 <button class="icon-btn" id="newPaperBtn" title="New paper">+</button>
             </div>
             <div class="sidebar-filter-wrapper">
@@ -307,6 +309,8 @@
 
         <aside class="teacher-panel" id="teacherPanel"></aside>
     </div>
+
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
     <!-- Equation Library Modal Dialog -->
     <div class="modal-overlay" id="equationModal" hidden>

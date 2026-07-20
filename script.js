@@ -123,6 +123,42 @@ document.getElementById('tagScrollDownBtn').addEventListener('click', () => {
     document.getElementById('tagFilterContainer')?.scrollBy({ top: 40, behavior: 'smooth' });
 });
 
+
+// Mobile/tablet collapsible sidebar drawer event listeners
+const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener('click', () => {
+        const sidebar = document.getElementById('paperSidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar && backdrop) {
+            sidebar.classList.toggle('open');
+            backdrop.classList.toggle('active');
+            sidebarToggleBtn.setAttribute('aria-expanded', sidebar.classList.contains('open') ? 'true' : 'false');
+        }
+    });
+}
+
+const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+if (closeSidebarBtn) {
+    closeSidebarBtn.addEventListener('click', () => {
+        const sidebar = document.getElementById('paperSidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar) sidebar.classList.remove('open');
+        if (backdrop) backdrop.classList.remove('active');
+        if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+    });
+}
+
+const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', () => {
+        const sidebar = document.getElementById('paperSidebar');
+        if (sidebar) sidebar.classList.remove('open');
+        sidebarBackdrop.classList.remove('active');
+        if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+    });
+}
+
 document.addEventListener('paste', handlePaste);
 
 load();
@@ -196,14 +232,22 @@ function normalize() {
 }
 
 function samplePaper() {
+    const sampleTableHtml = '<table class="editor-table" style="width:200px; table-layout:fixed;"><colgroup><col style="width:100px;"/><col style="width:100px;"/></colgroup><tbody><tr><td>Item</td><td>Value</td></tr><tr><td>A</td><td>10</td></tr></tbody></table>';
+    const sampleTableToken = `[table:${btoa(unescape(encodeURIComponent(sampleTableHtml)))}]`;
+
     const math = {
         id: uid('section'),
         name: 'Mathematics',
         layout: 'row',
         questions: [
             newQuestion('Two circles having same _____ are called concentric circles', ['Center', 'radius', 'arc', 'segment'], 0),
+            newQuestion('Refer to the following table for items and their values:\n' + sampleTableToken, ['10', '20', '30', '40'], 0),
             newQuestion('Degree measure of a circle is _____ degrees', ['90', '180', '270', '360'], 3),
-            newQuestion('If a line intersect a circle in two distinct points, then it is called', ['Secant', 'tangent', 'median', 'altitude'], 0),
+            newQuestion('If a line intersect a circle in two distinct points, then it is called', ['Secant', 'tangent', '', ''], 0),
+            newQuestion('Assertion: Two circles having same center are called concentric circles.\nReasoning: Concentric circles have different radii but the same center.', ['Both A and R are true and R is the correct explanation of A', 'Both A and R are true but R is not the correct explanation of A', 'A is true but R is false', 'A is false but R is true'], 0),
+            newQuestion('Long question text starts here and if it wraps onto another\nline, the continuation must align with the question text,\nnot with the far-left page margin.', ['Option A', 'Option B', 'Option C', 'Option D'], 0),
+            newQuestion('', ['', '', '', ''], 0),
+            newQuestion('', ['', '', '', ''], 0),
         ],
     };
     const paper = {
@@ -262,6 +306,17 @@ function render() {
     save();
     renderMathSoon();
     renderMermaidSoon();
+
+    // Auto-close sidebar drawer on screens < 1024px after selection/action
+    if (window.innerWidth < 1024) {
+        const sidebar = document.querySelector('.paper-sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar && sidebar.classList.contains('open')) {
+            sidebar.classList.remove('open');
+            if (backdrop) backdrop.classList.remove('active');
+            if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+        }
+    }
 }
 
 function renderPaperList() {
@@ -795,7 +850,109 @@ function renderSectionTabs() {
     document.getElementById('addSectionBtn').addEventListener('click', addSection);
 }
 
+function getSelectionCharacterOffsetWithin(element) {
+    let start = 0;
+    let end = 0;
+    const doc = element.ownerDocument || document;
+    const win = doc.defaultView || window;
+    const sel = win.getSelection();
+    if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (element.contains(range.startContainer) && element.contains(range.endContainer)) {
+            const preCaretRange = range.cloneRange();
+            preCaretRange.selectNodeContents(element);
+            preCaretRange.setEnd(range.startContainer, range.startOffset);
+            start = preCaretRange.toString().length;
+            preCaretRange.setEnd(range.endContainer, range.endOffset);
+            end = preCaretRange.toString().length;
+        }
+    }
+    return { start, end };
+}
+
+function setSelectionCharacterOffsetWithin(element, offsetInfo) {
+    if (!offsetInfo) return;
+    const doc = element.ownerDocument || document;
+    const win = doc.defaultView || window;
+    const sel = win.getSelection();
+    if (!sel) return;
+    
+    let charIndex = 0;
+    const range = doc.createRange();
+    range.setStart(element, 0);
+    range.collapse(true);
+    
+    const nodeStack = [element];
+    let node;
+    let foundStart = false;
+    let foundEnd = false;
+    
+    while (nodeStack.length > 0) {
+        node = nodeStack.pop();
+        if (node.nodeType === Node.TEXT_NODE) {
+            const nextCharIndex = charIndex + node.length;
+            if (!foundStart && offsetInfo.start >= charIndex && offsetInfo.start <= nextCharIndex) {
+                range.setStart(node, offsetInfo.start - charIndex);
+                foundStart = true;
+            }
+            if (!foundEnd && offsetInfo.end >= charIndex && offsetInfo.end <= nextCharIndex) {
+                range.setEnd(node, offsetInfo.end - charIndex);
+                foundEnd = true;
+            }
+            charIndex = nextCharIndex;
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.nodeName === 'BR') {
+                const nextCharIndex = charIndex + 1;
+                if (!foundStart && offsetInfo.start >= charIndex && offsetInfo.start <= nextCharIndex) {
+                    const parent = node.parentNode;
+                    const index = Array.from(parent.childNodes).indexOf(node);
+                    range.setStart(parent, index);
+                    foundStart = true;
+                }
+                if (!foundEnd && offsetInfo.end >= charIndex && offsetInfo.end <= nextCharIndex) {
+                    const parent = node.parentNode;
+                    const index = Array.from(parent.childNodes).indexOf(node);
+                    range.setEnd(parent, index);
+                    foundEnd = true;
+                }
+                charIndex = nextCharIndex;
+            } else {
+                for (let i = node.childNodes.length - 1; i >= 0; i--) {
+                    nodeStack.push(node.childNodes[i]);
+                }
+            }
+        }
+        if (foundStart && foundEnd) break;
+    }
+    
+    if (!foundStart) {
+        range.setStart(element, element.childNodes.length);
+    }
+    if (!foundEnd) {
+        range.setEnd(element, element.childNodes.length);
+    }
+    
+    try {
+        sel.removeAllRanges();
+        sel.addRange(range);
+    } catch (e) {
+        console.error("Error setting selection range:", e);
+    }
+}
+
 function renderWorkbench() {
+    const activeEl = document.activeElement;
+    let focusedEditorId = null;
+    let caretOffset = null;
+
+    if (activeEl && activeEl.hasAttribute('data-visual-editor')) {
+        focusedEditorId = activeEl.dataset.editorId;
+        caretOffset = getSelectionCharacterOffsetWithin(activeEl);
+    } else if (activeEl && activeEl.hasAttribute('data-code-editor')) {
+        focusedEditorId = activeEl.dataset.editorId;
+        caretOffset = { start: activeEl.selectionStart, end: activeEl.selectionEnd, isCode: true };
+    }
+
     const paper = getActivePaper();
     const section = getActiveSection();
     const globalToolbar = document.getElementById('globalToolbar');
@@ -922,6 +1079,20 @@ function renderWorkbench() {
             render();
         });
     });
+
+    if (focusedEditorId) {
+        const newEditor = els.workbench.querySelector(`[data-editor-id="${focusedEditorId}"][data-visual-editor]`);
+        const newCodeEditor = els.workbench.querySelector(`[data-editor-id="${focusedEditorId}"][data-code-editor]`);
+        if (caretOffset && caretOffset.isCode && newCodeEditor) {
+            newCodeEditor.focus();
+            newCodeEditor.setSelectionRange(caretOffset.start, caretOffset.end);
+        } else if (newEditor) {
+            newEditor.focus();
+            if (caretOffset) {
+                setSelectionCharacterOffsetWithin(newEditor, caretOffset);
+            }
+        }
+    }
 }
 
 function questionCard(question, index) {
@@ -2803,17 +2974,22 @@ function imageStrip(markdown, qid, field) {
 
 function markdownToVisualHtml(markdown) {
     const source = String(markdown || '');
-    if (!source.trim()) return '';
+    if (!source) return '';
+    
     let html = '';
+    let currentLine = '';
+    
     const tokenRe = /!\[([^\]]*)\]\((data:image\/[^)]+)\)|\\\(([\s\S]+?)\\\)|\[mermaid:([^:]+?)(?::([^:]+?))?(?::([\s\S]+?))?\]|\*\*([^*]+)\*\*|\*([^*]+)\*|\[table:([A-Za-z0-9+/=]+)\]|\n/g;
     let last = 0;
     let match;
+    
     while ((match = tokenRe.exec(source))) {
-        html += esc(source.slice(last, match.index));
+        currentLine += esc(source.slice(last, match.index));
+        
         if (match[2]) {
-            html += `<img class="editor-image" src="${match[2]}" alt="${esc(match[1] || 'image')}" data-src="${match[2]}" data-alt="${esc(match[1] || 'image')}" contenteditable="false">`;
+            currentLine += `<img class="editor-image" src="${match[2]}" alt="${esc(match[1] || 'image')}" data-src="${match[2]}" data-alt="${esc(match[1] || 'image')}" contenteditable="false">`;
         } else if (match[3]) {
-            html += mathHtml(match[3]);
+            currentLine += mathHtml(match[3]);
         } else if (match[4]) {
             let code = match[4];
             let width = '';
@@ -2829,14 +3005,12 @@ function markdownToVisualHtml(markdown) {
                     png = match[6] || '';
                 }
             }
-            html += mermaidHtml(code, width, png, height);
+            currentLine += mermaidHtml(code, width, png, height);
         } else if (match[7]) {
-            html += `<strong>${esc(match[7])}</strong>`;
+            currentLine += `<strong>${esc(match[7])}</strong>`;
         } else if (match[8]) {
-            html += `<em>${esc(match[8])}</em>`;
+            currentLine += `<em>${esc(match[8])}</em>`;
         } else if (match[9]) {
-            // [table:base64] → native <table class="editor-table"> directly in the editor
-            // No contenteditable="false" wrapper — the table is a live native node.
             try {
                 const tableHtml = decodeURIComponent(escape(atob(match[9])));
                 const parser = new DOMParser();
@@ -2844,21 +3018,33 @@ function markdownToVisualHtml(markdown) {
                 const tableEl = doc.querySelector('table');
                 if (tableEl) {
                     tableEl.classList.add('editor-table');
-                    // Ensure table-layout is preserved
                     if (!tableEl.style.tableLayout) tableEl.style.tableLayout = 'fixed';
-                    html += tableEl.outerHTML;
+                    currentLine += tableEl.outerHTML;
                 } else {
-                    html += `[table:${esc(match[9])}]`;
+                    currentLine += `[table:${esc(match[9])}]`;
                 }
             } catch (err) {
-                html += `[table:${esc(match[9])}]`;
+                currentLine += `[table:${esc(match[9])}]`;
             }
         } else {
-            html += '<br>';
+            // Newline matched
+            if (currentLine === '') {
+                html += '<div><br></div>';
+            } else {
+                html += `<div>${currentLine}</div>`;
+            }
+            currentLine = '';
         }
         last = tokenRe.lastIndex;
     }
-    html += esc(source.slice(last));
+    
+    currentLine += esc(source.slice(last));
+    if (currentLine !== '') {
+        html += `<div>${currentLine}</div>`;
+    } else if (last > 0) {
+        html += '<div><br></div>';
+    }
+    
     return html;
 }
 
@@ -2890,14 +3076,41 @@ function mermaidHtml(base64Code, width = '', pngDataUrl = '', height = '') {
 }
 
 function markdownFromVisual(root) {
-    return Array.from(root.childNodes).map(nodeToMarkdown).join('').replace(/\u00a0/g, ' ').trim();
+    const children = Array.from(root.childNodes);
+    const parts = [];
+    for (let i = 0; i < children.length; i++) {
+        const node = children[i];
+        const md = nodeToMarkdown(node);
+        const isBlock = node.nodeType === Node.ELEMENT_NODE && 
+                        (node.matches('div, p, table') || node.classList.contains('table-token'));
+        
+        if (isBlock) {
+            parts.push(md);
+        } else {
+            const prev = children[i - 1];
+            const prevIsBlock = prev && prev.nodeType === Node.ELEMENT_NODE && 
+                                (prev.matches('div, p, table') || prev.classList.contains('table-token'));
+            if (parts.length > 0 && !prevIsBlock) {
+                parts[parts.length - 1] += md;
+            } else {
+                parts.push(md);
+            }
+        }
+    }
+    return parts.join('\n').replace(/\u00a0/g, ' ');
 }
 
 function nodeToMarkdown(node) {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
     const el = node;
-    if (el.matches('br')) return '\n';
+    if (el.matches('br')) {
+        const parent = el.parentNode;
+        if (parent && parent.childNodes.length === 1 && parent.matches('div, p')) {
+            return '';
+        }
+        return '\n';
+    }
     if (el.matches('img.editor-image')) {
         return `![${el.dataset.alt || 'image'}](${el.dataset.src || el.src})`;
     }
@@ -2905,7 +3118,6 @@ function nodeToMarkdown(node) {
         return `\\(${el.dataset.latex || el.textContent || ''}\\)`;
     }
     if (el.matches('.table-token')) {
-        // Legacy wrapper (old saved papers) — serialize the inner table
         const tableEl = el.querySelector('table');
         if (tableEl) {
             const clone = tableEl.cloneNode(true);
@@ -2921,7 +3133,6 @@ function nodeToMarkdown(node) {
         return `[table:${el.dataset.table || ''}]`;
     }
     if (el.matches('table.editor-table')) {
-        // Native editor table — serialize live DOM to [table:base64]
         const clone = el.cloneNode(true);
         clone.classList.remove('tbl-focused');
         clone.querySelectorAll('td, th').forEach(cell => {
@@ -2958,7 +3169,7 @@ function nodeToMarkdown(node) {
     const content = Array.from(el.childNodes).map(nodeToMarkdown).join('');
     if (el.matches('strong,b')) return `**${content}**`;
     if (el.matches('em,i')) return `*${content}*`;
-    if (el.matches('div,p')) return `${content}\n`;
+    if (el.matches('div,p')) return content;
     return content;
 }
 
@@ -5181,7 +5392,7 @@ function buildDocumentRels(media) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${imageRels}</Relationships>`;
 }
 
-function docxTableFromBase64Html(base64Html) {
+function docxTableFromBase64Html(base64Html, leftIndent = 400) {
     try {
         const html = decodeURIComponent(escape(atob(base64Html)));
         const parser = new DOMParser();
@@ -5191,7 +5402,7 @@ function docxTableFromBase64Html(base64Html) {
 
         // DOCX uses twips (15 twips per CSS pixel). Keep the editor's current dimensions instead of normalizing every table to a default width.
         const pxToDxa = value => Math.max(1, Math.round((parseFloat(value) || 0) * 15));
-        const DOCX_TOTAL_W = 9000;
+        const DOCX_TOTAL_W = 10800 - leftIndent;
         const colEls = Array.from(doc.querySelectorAll('colgroup col'));
         let colWidthsDxa = [];  // widths in dxa (twips)
 
@@ -5277,6 +5488,7 @@ function docxTableFromBase64Html(base64Html) {
             <w:tbl>
                 <w:tblPr>
                     ${tblWidthDxa}
+                    <w:tblInd w:w="${leftIndent}" w:type="dxa"/>
                     <w:tblBorders>
                         <w:top    w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
                         <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
@@ -5298,7 +5510,49 @@ function docxTableFromBase64Html(base64Html) {
 }
 
 function docxQuestionParagraphs(questionNumber, markdown, media) {
-    const segments = parseDocxMarkdown(markdown);
+    const cleanMarkdown = String(markdown || '').trim();
+    const assertionRegex = /^\s*(Assertion(?:\s*\(A\))?|A)\s*:\s*([\s\S]+?)\s*(?:\r?\n\s*)+(?:(?:<br\s*\/?>|&nbsp;|\s)*\r?\n)?\s*(Reasoning(?:\s*\(R\))?|Reason(?:\s*\(R\))?|R)\s*:\s*([\s\S]+)$/i;
+    const match = cleanMarkdown.match(assertionRegex);
+    
+    if (match) {
+        const labelAssert = match[1];
+        const assertText = match[2].trim();
+        const labelReason = match[3];
+        const reasonText = match[4].trim();
+        
+        const assertRuns = [
+            docxTextRun(`${questionNumber})`, { bold: true }),
+            '<w:r><w:tab/></w:r>',
+            docxTextRun(`${labelAssert}: `, { bold: true }),
+            '<w:r><w:tab/></w:r>',
+            ...docxInlineFromMarkdown(assertText, media)
+        ];
+        const reasonRuns = [
+            '<w:r><w:tab/></w:r>',
+            docxTextRun(`${labelReason}: `, { bold: true }),
+            '<w:r><w:tab/></w:r>',
+            ...docxInlineFromMarkdown(reasonText, media)
+        ];
+        
+        const assertXml = docxParagraph(assertRuns, { 
+            before: 100, 
+            after: 40,
+            leftIndent: 1400,
+            hanging: 1400,
+            tabPositions: [400, 1400]
+        });
+        const reasonXml = docxParagraph(reasonRuns, { 
+            before: 40, 
+            after: 40,
+            leftIndent: 1400,
+            hanging: 1400,
+            tabPositions: [400, 1400]
+        });
+        return assertXml + reasonXml;
+    }
+    
+    // Normal question parsing
+    const segments = parseDocxMarkdown(cleanMarkdown);
     let xml = '';
     let currentRuns = [];
     let isFirstParagraph = true;
@@ -5307,11 +5561,26 @@ function docxQuestionParagraphs(questionNumber, markdown, media) {
         if (currentRuns.length === 0 && !isFirstParagraph) return;
         
         const prefixRuns = [];
+        let beforeSpace = 0;
+        let leftIndent = 400;
+        let hanging = 0;
+        let tabPositions = null;
+        
         if (isFirstParagraph) {
-            prefixRuns.push(docxTextRun(`${questionNumber}) `, { bold: true }));
+            prefixRuns.push(docxTextRun(`${questionNumber})`, { bold: true }));
+            prefixRuns.push('<w:r><w:tab/></w:r>');
+            beforeSpace = 100;
+            hanging = 400;
+            tabPositions = [400];
         }
         
-        xml += docxParagraph([...prefixRuns, ...currentRuns], { after: 50 });
+        xml += docxParagraph([...prefixRuns, ...currentRuns], { 
+            before: beforeSpace, 
+            after: 60,
+            leftIndent,
+            hanging,
+            tabPositions
+        });
         currentRuns = [];
         isFirstParagraph = false;
     };
@@ -5343,14 +5612,16 @@ function docxQuestionParagraphs(questionNumber, markdown, media) {
             }
             const imgRun = docxImageRun(segment.src, media, w, h);
             if (imgRun) {
-                xml += docxParagraph([imgRun], { align: 'center', before: 50, after: 50 });
+                xml += docxParagraph([imgRun], { align: 'center', before: 60, after: 60 });
             }
         } else if (segment.type === 'mermaid') {
             commitParagraph();
-            xml += docxParagraph([docxTextRun('[Mermaid Diagram]', { italic: true })], { after: 50 });
+            xml += docxParagraph([docxTextRun('[Mermaid Diagram]', { italic: true })], { align: 'center', before: 60, after: 60 });
         } else if (segment.type === 'table') {
             commitParagraph();
-            xml += docxTableFromBase64Html(segment.base64Html);
+            xml += `<w:p><w:pPr><w:spacing w:before="0" w:after="80"/><w:ind w:left="400"/></w:pPr></w:p>`;
+            xml += docxTableFromBase64Html(segment.base64Html, 400);
+            xml += `<w:p><w:pPr><w:spacing w:before="80" w:after="0"/><w:ind w:left="400"/></w:pPr></w:p>`;
             isFirstParagraph = false;
         }
     });
@@ -5464,7 +5735,37 @@ function buildDocumentXml(paper, media) {
     body += docxParagraph([docxTextRun('Name: ________________________________', { size: 22 })], { before: 80, after: 120 });
     
     if (paper.meta.instructions) {
-        body += docxParagraph([docxTextRun('Instructions: ', { bold: true }), ...docxInlineFromMarkdown(paper.meta.instructions, media)], { after: 100 });
+        const cleanInst = String(paper.meta.instructions).trim();
+        if (cleanInst) {
+            const lines = cleanInst.split('\n');
+            lines.forEach((line, index) => {
+                const isLast = (index === lines.length - 1);
+                const afterSpace = isLast ? 100 : 40;
+                const trimmedLine = line.trim();
+                
+                if (index === 0) {
+                    // First line: includes "Instructions: " label
+                    const runs = [
+                        docxTextRun('Instructions: ', { bold: true }),
+                        '<w:r><w:tab/></w:r>',
+                        ...(trimmedLine ? docxInlineFromMarkdown(trimmedLine, media) : [docxTextRun('', {})])
+                    ];
+                    body += docxParagraph(runs, {
+                        leftIndent: 1400,
+                        hanging: 1400,
+                        tabPositions: [1400],
+                        after: afterSpace
+                    });
+                } else {
+                    // Subsequent lines: indented to align with first line text
+                    const runs = trimmedLine ? docxInlineFromMarkdown(trimmedLine, media) : [docxTextRun('', {})];
+                    body += docxParagraph(runs, {
+                        leftIndent: 1400,
+                        after: afterSpace
+                    });
+                }
+            });
+        }
     }
     
     let questionNumber = 0;
@@ -5517,52 +5818,175 @@ function buildDocumentXml(paper, media) {
 }
 
 function docxOptionsParagraphs(question, media) {
+    const tableBorders = `
+        <w:tblBorders>
+            <w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/>
+            <w:insideH w:val="none"/><w:insideV w:val="none"/>
+        </w:tblBorders>
+    `;
+    
+    const cellBorders = `
+        <w:tcBorders>
+            <w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/>
+        </w:tcBorders>
+    `;
+
     if (question.layout === 'column') {
-        let html = '';
+        // 4x1: 4 rows, 1 cell of width 10800 each
+        let rowsXml = '';
         for (let i = 0; i < 4; i++) {
-            const runs = [docxTextRun(`${LABELS[i]}) `, { bold: true }), ...docxInlineFromMarkdown(question.options[i]?.text || '', media)];
-            html += docxParagraph(runs, { after: 20 });
+            const runs = [
+                docxTextRun(`${LABELS[i]}) `, { bold: true }), 
+                ...docxInlineFromMarkdown(question.options[i]?.text || '', media)
+            ];
+            const afterSpace = (i === 3) ? 100 : 20;
+            const cellXml = `
+                <w:tc>
+                    <w:tcPr>
+                        <w:tcW w:w="10800" w:type="dxa"/>
+                        ${cellBorders}
+                        <w:vAlign w:val="top"/>
+                    </w:tcPr>
+                    ${docxParagraph(runs, { before: 0, after: afterSpace, leftIndent: 400 })}
+                </w:tc>
+            `;
+            rowsXml += `<w:tr>${cellXml}</w:tr>`;
         }
-        return html + docxParagraph([], { after: 60 });
+        
+        return `
+            <w:tbl>
+                <w:tblPr>
+                    <w:tblW w:w="10800" w:type="dxa"/>
+                    ${tableBorders}
+                    <w:tblLayout w:type="fixed"/>
+                </w:tblPr>
+                <w:tblGrid>
+                    <w:gridCol w:w="10800"/>
+                </w:tblGrid>
+                ${rowsXml}
+            </w:tbl>
+        `;
     }
 
     if (question.layout === 'grid2') {
-        const tabsXml = '<w:pPr><w:tabs><w:tab w:val="left" w:pos="4680"/></w:tabs></w:pPr>';
-        const runs1 = [
+        // 2x2: 2 rows, 2 cells of width 5400 each
+        let rowsXml = '';
+        
+        // Row 1 (A & B)
+        const runsA = [
             docxTextRun(`${LABELS[0]}) `, { bold: true }),
-            ...docxInlineFromMarkdown(question.options[0]?.text || '', media),
-            '<w:r><w:tab/></w:r>',
+            ...docxInlineFromMarkdown(question.options[0]?.text || '', media)
+        ];
+        const runsB = [
             docxTextRun(`${LABELS[1]}) `, { bold: true }),
             ...docxInlineFromMarkdown(question.options[1]?.text || '', media)
         ];
-        const runs2 = [
+        
+        // Row 2 (C & D)
+        const runsC = [
             docxTextRun(`${LABELS[2]}) `, { bold: true }),
-            ...docxInlineFromMarkdown(question.options[2]?.text || '', media),
-            '<w:r><w:tab/></w:r>',
+            ...docxInlineFromMarkdown(question.options[2]?.text || '', media)
+        ];
+        const runsD = [
             docxTextRun(`${LABELS[3]}) `, { bold: true }),
             ...docxInlineFromMarkdown(question.options[3]?.text || '', media)
         ];
-        const p1 = `<w:p>${tabsXml}${runs1.join('')}</w:p>`;
-        const p2 = `<w:p>${tabsXml}${runs2.join('')}</w:p>`;
-        return p1 + p2 + docxParagraph([], { after: 60 });
+
+        rowsXml += `
+            <w:tr>
+                <w:tc>
+                    <w:tcPr><w:tcW w:w="5400" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                    ${docxParagraph(runsA, { before: 0, after: 20, leftIndent: 400 })}
+                </w:tc>
+                <w:tc>
+                    <w:tcPr><w:tcW w:w="5400" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                    ${docxParagraph(runsB, { before: 0, after: 20, leftIndent: 400 })}
+                </w:tc>
+            </w:tr>
+            <w:tr>
+                <w:tc>
+                    <w:tcPr><w:tcW w:w="5400" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                    ${docxParagraph(runsC, { before: 0, after: 100, leftIndent: 400 })}
+                </w:tc>
+                <w:tc>
+                    <w:tcPr><w:tcW w:w="5400" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                    ${docxParagraph(runsD, { before: 0, after: 100, leftIndent: 400 })}
+                </w:tc>
+            </w:tr>
+        `;
+
+        return `
+            <w:tbl>
+                <w:tblPr>
+                    <w:tblW w:w="10800" w:type="dxa"/>
+                    ${tableBorders}
+                    <w:tblLayout w:type="fixed"/>
+                </w:tblPr>
+                <w:tblGrid>
+                    <w:gridCol w:w="5400"/>
+                    <w:gridCol w:w="5400"/>
+                </w:tblGrid>
+                ${rowsXml}
+            </w:tbl>
+        `;
     }
 
     // Default to 'row' (1x4)
-    const tabsXml = '<w:pPr><w:tabs><w:tab w:val="left" w:pos="2340"/><w:tab w:val="left" w:pos="4680"/><w:tab w:val="left" w:pos="7020"/></w:tabs></w:pPr>';
-    const runs = [
+    // 1 row, 4 cells of width 2700 each
+    const runsA = [
         docxTextRun(`${LABELS[0]}) `, { bold: true }),
-        ...docxInlineFromMarkdown(question.options[0]?.text || '', media),
-        '<w:r><w:tab/></w:r>',
+        ...docxInlineFromMarkdown(question.options[0]?.text || '', media)
+    ];
+    const runsB = [
         docxTextRun(`${LABELS[1]}) `, { bold: true }),
-        ...docxInlineFromMarkdown(question.options[1]?.text || '', media),
-        '<w:r><w:tab/></w:r>',
+        ...docxInlineFromMarkdown(question.options[1]?.text || '', media)
+    ];
+    const runsC = [
         docxTextRun(`${LABELS[2]}) `, { bold: true }),
-        ...docxInlineFromMarkdown(question.options[2]?.text || '', media),
-        '<w:r><w:tab/></w:r>',
+        ...docxInlineFromMarkdown(question.options[2]?.text || '', media)
+    ];
+    const runsD = [
         docxTextRun(`${LABELS[3]}) `, { bold: true }),
         ...docxInlineFromMarkdown(question.options[3]?.text || '', media)
     ];
-    return `<w:p>${tabsXml}${runs.join('')}</w:p>` + docxParagraph([], { after: 60 });
+
+    const rowXml = `
+        <w:tr>
+            <w:tc>
+                <w:tcPr><w:tcW w:w="2700" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                ${docxParagraph(runsA, { before: 0, after: 100, leftIndent: 400 })}
+            </w:tc>
+            <w:tc>
+                <w:tcPr><w:tcW w:w="2700" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                ${docxParagraph(runsB, { before: 0, after: 100, leftIndent: 400 })}
+            </w:tc>
+            <w:tc>
+                <w:tcPr><w:tcW w:w="2700" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                ${docxParagraph(runsC, { before: 0, after: 100, leftIndent: 400 })}
+            </w:tc>
+            <w:tc>
+                <w:tcPr><w:tcW w:w="2700" w:type="dxa"/>${cellBorders}<w:vAlign w:val="top"/></w:tcPr>
+                ${docxParagraph(runsD, { before: 0, after: 100, leftIndent: 400 })}
+            </w:tc>
+        </w:tr>
+    `;
+
+    return `
+        <w:tbl>
+            <w:tblPr>
+                <w:tblW w:w="10800" w:type="dxa"/>
+                ${tableBorders}
+                <w:tblLayout w:type="fixed"/>
+            </w:tblPr>
+            <w:tblGrid>
+                <w:gridCol w:w="2700"/>
+                <w:gridCol w:w="2700"/>
+                <w:gridCol w:w="2700"/>
+                <w:gridCol w:w="2700"/>
+            </w:tblGrid>
+            ${rowXml}
+        </w:tbl>
+    `;
 }
 
 function docxInlineFromMarkdown(markdown, media) {
@@ -5678,8 +6102,27 @@ function docxTextRun(text, opts = {}) {
 
 function docxParagraph(runs, opts = {}) {
     const pPr = [];
-    if (opts.align) pPr.push(`<w:jc w:val="${opts.align}"/>`);
-    if (opts.before || opts.after !== undefined) pPr.push(`<w:spacing w:before="${opts.before || 0}" w:after="${opts.after || 0}"/>`);
+    
+    // 1. tabs (complying with standard OpenXML schema order)
+    if (opts.tabPositions) {
+        pPr.push(`<w:tabs>${opts.tabPositions.map(pos => `<w:tab w:val="left" w:pos="${pos}"/>`).join('')}</w:tabs>`);
+    }
+    
+    // 2. spacing
+    if (opts.before || opts.after !== undefined) {
+        pPr.push(`<w:spacing w:before="${opts.before || 0}" w:after="${opts.after || 0}"/>`);
+    }
+    
+    // 3. ind
+    if (opts.leftIndent || opts.hanging) {
+        pPr.push(`<w:ind w:left="${opts.leftIndent || 0}" w:hanging="${opts.hanging || 0}"/>`);
+    }
+    
+    // 4. jc (alignment)
+    if (opts.align) {
+        pPr.push(`<w:jc w:val="${opts.align}"/>`);
+    }
+    
     return `<w:p>${pPr.length ? `<w:pPr>${pPr.join('')}</w:pPr>` : ''}${runs.join('')}</w:p>`;
 }
 
