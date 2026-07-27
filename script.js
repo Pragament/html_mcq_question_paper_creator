@@ -10,6 +10,18 @@ const LAYOUTS = [
     { id: 'grid2', label: '2x2' },
     { id: 'column', label: '4x1' },
 ];
+const IMPORT_QUESTIONS_REQUIRED_HEADERS = ['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option'];
+const IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS = {
+    subject: 'Mathematics',
+    className: 'IX',
+    questionCount: 10,
+    difficulty: 'Medium',
+    topic: '',
+};
+const IMPORT_QUESTIONS_PROMPT_OPEN_URLS = {
+    chatgpt: 'https://chatgpt.com/',
+    gemini: 'https://gemini.google.com/',
+};
 const DOCX_NS = {
     w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
     r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
@@ -80,6 +92,8 @@ const FORMULA_LIBRARY = [
 ];
 
 let activeMathfield = null;
+let importQuestionsPreviewState = null;
+let importPromptCopyResetTimer = null;
 
 let state = {
     papers: [],
@@ -130,6 +144,7 @@ initEquationModal();
 initGlobalToolbar();
 initSectionModal();
 initAddQuestionsModal();
+initImportQuestionsModal();
 initDeletePaperModal();
 initWordExportModal();
 initLogoContextMenu();
@@ -827,6 +842,7 @@ function renderWorkbench() {
                 </div>
             </div>
             <div class="question-tools">
+                <button class="small-btn" id="importQuestionsBtn">Import Questions</button>
                 <button class="small-btn success" id="addQuestionBtn" style="display: none;">+ Question</button>
                 <button class="small-btn" id="reuseQuestionBtn"${UI_CONFIG.showReuse ? '' : ' style="display: none;"'}>Reuse</button>
                 <button class="small-btn" id="duplicateSectionBtn"${UI_CONFIG.showDuplicate ? '' : ' style="display: none;"'}>Duplicate</button>
@@ -858,6 +874,10 @@ function renderWorkbench() {
     const addQBtn = document.getElementById('addQuestionBtn');
     if (addQBtn) {
         addQBtn.addEventListener('click', () => addQuestion(section.id));
+    }
+    const importQuestionsBtn = document.getElementById('importQuestionsBtn');
+    if (importQuestionsBtn) {
+        importQuestionsBtn.addEventListener('click', openImportQuestionsModal);
     }
     const bottomAddQBtn = document.getElementById('bottomAddQuestionBtn');
     if (bottomAddQBtn) {
@@ -3185,6 +3205,10 @@ function initSectionModal() {
     
     const hideModal = () => {
         modal.setAttribute('hidden', 'true');
+        if (importPromptCopyResetTimer) {
+            window.clearTimeout(importPromptCopyResetTimer);
+            importPromptCopyResetTimer = null;
+        }
     };
     
     closeBtn.addEventListener('click', hideModal);
@@ -3385,6 +3409,614 @@ function initAddQuestionsModal() {
     };
     if (nameInput) nameInput.addEventListener('keydown', handleEnter);
     if (countInput) countInput.addEventListener('keydown', handleEnter);
+}
+
+function openImportQuestionsModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('importQuestionsModal');
+    const fileInput = document.getElementById('importQuestionsFileInput');
+    const csvInput = document.getElementById('importQuestionsCsvInput');
+    const previewCount = document.querySelector('#importQuestionsModal .import-preview-count');
+    const previewEmpty = document.querySelector('#importQuestionsModal .import-preview-empty');
+    const previewList = document.getElementById('importQuestionsPreviewList');
+    const validationMessage = document.getElementById('importQuestionsValidationMessage');
+    const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+    const promptText = document.getElementById('importQuestionsPromptText');
+    const promptCard = document.querySelector('#importQuestionsModal .import-prompt-card');
+    const promptToggleBtn = document.getElementById('importPromptToggleBtn');
+    const promptPanel = document.getElementById('importPromptPanel');
+    const promptSubject = document.getElementById('importPromptSubject');
+    const promptClass = document.getElementById('importPromptClass');
+    const promptQuestionCount = document.getElementById('importPromptQuestionCount');
+    const promptDifficulty = document.getElementById('importPromptDifficulty');
+    const promptTopic = document.getElementById('importPromptTopic');
+    const expandPromptBtn = document.getElementById('expandImportQuestionsPromptBtn');
+    if (!modal) return;
+
+    if (fileInput) fileInput.value = '';
+    if (csvInput) csvInput.value = '';
+    if (previewCount) previewCount.textContent = 'No CSV loaded';
+    if (previewEmpty) {
+        previewEmpty.textContent = 'Preview, validation, and import mapping will be added in the next stage.';
+    }
+    if (previewList) {
+        previewList.hidden = true;
+        previewList.innerHTML = '';
+    }
+    if (validationMessage) {
+        validationMessage.hidden = true;
+        validationMessage.textContent = '';
+    }
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (promptCard) promptCard.classList.remove('is-open');
+    if (promptToggleBtn) {
+        promptToggleBtn.setAttribute('aria-expanded', 'false');
+        const toggleText = promptToggleBtn.querySelector('.import-prompt-toggle-text');
+        if (toggleText) toggleText.textContent = 'Show AI Prompt';
+    }
+    if (promptPanel) promptPanel.hidden = true;
+
+    if (promptSubject) promptSubject.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.subject;
+    if (promptClass) promptClass.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.className;
+    if (promptQuestionCount) promptQuestionCount.value = String(IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.questionCount);
+    if (promptDifficulty) promptDifficulty.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.difficulty;
+    if (promptTopic) promptTopic.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.topic;
+    if (promptText) promptText.textContent = buildImportQuestionsPrompt(getImportPromptValues());
+    if (expandPromptBtn) {
+        expandPromptBtn.textContent = 'Expand Prompt';
+        expandPromptBtn.setAttribute('aria-pressed', 'false');
+    }
+    modal.classList.remove('import-prompt-expanded');
+
+    importQuestionsPreviewState = null;
+
+    modal.removeAttribute('hidden');
+    csvInput?.focus();
+}
+
+function initImportQuestionsModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('importQuestionsModal');
+    const closeBtn = document.getElementById('closeImportQuestionsModalBtn');
+    const cancelBtn = document.getElementById('cancelImportQuestionsBtn');
+    const fileInput = document.getElementById('importQuestionsFileInput');
+    const csvInput = document.getElementById('importQuestionsCsvInput');
+    const previewBtn = document.getElementById('previewImportQuestionsBtn');
+    const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+    const copyPromptBtn = document.getElementById('copyImportQuestionsPromptBtn');
+    const expandPromptBtn = document.getElementById('expandImportQuestionsPromptBtn');
+    const openChatGPTBtn = document.getElementById('openChatGPTBtn');
+    const openGeminiBtn = document.getElementById('openGeminiBtn');
+    const promptToggleBtn = document.getElementById('importPromptToggleBtn');
+    const promptPanel = document.getElementById('importPromptPanel');
+    const promptCard = document.querySelector('#importQuestionsModal .import-prompt-card');
+    const promptText = document.getElementById('importQuestionsPromptText');
+    const promptSubject = document.getElementById('importPromptSubject');
+    const promptClass = document.getElementById('importPromptClass');
+    const promptQuestionCount = document.getElementById('importPromptQuestionCount');
+    const promptDifficulty = document.getElementById('importPromptDifficulty');
+    const promptTopic = document.getElementById('importPromptTopic');
+
+    if (!modal || !closeBtn || !cancelBtn || !fileInput || !csvInput || !previewBtn || !confirmBtn || !copyPromptBtn || !expandPromptBtn || !promptText || !promptToggleBtn || !promptPanel || !promptCard || !promptSubject || !promptClass || !promptQuestionCount || !promptDifficulty || !promptTopic) return;
+
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
+        modal.classList.remove('import-prompt-expanded');
+        expandPromptBtn.textContent = 'Expand Prompt';
+        expandPromptBtn.setAttribute('aria-pressed', 'false');
+        modal._importMouseDownTarget = null;
+        promptPanel.hidden = true;
+        promptCard.classList.remove('is-open');
+        promptToggleBtn.setAttribute('aria-expanded', 'false');
+        const toggleText = promptToggleBtn.querySelector('.import-prompt-toggle-text');
+        if (toggleText) toggleText.textContent = 'Show AI Prompt';
+    };
+
+    const syncPreviewPrompt = () => {
+        const previewCount = document.querySelector('#importQuestionsModal .import-preview-count');
+        const previewEmpty = document.querySelector('#importQuestionsModal .import-preview-empty');
+        const previewList = document.getElementById('importQuestionsPreviewList');
+        const validationMessage = document.getElementById('importQuestionsValidationMessage');
+        const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+
+        if (previewCount) previewCount.textContent = 'Ready to preview';
+        if (previewEmpty) previewEmpty.textContent = 'Click Preview Questions to validate the pasted or uploaded CSV.';
+        if (previewList) {
+            previewList.hidden = true;
+            previewList.innerHTML = '';
+        }
+        if (validationMessage) {
+            validationMessage.hidden = true;
+            validationMessage.textContent = '';
+        }
+        if (confirmBtn) confirmBtn.disabled = true;
+        importQuestionsPreviewState = null;
+    };
+
+    const syncImportPrompt = () => {
+        const prompt = buildImportQuestionsPrompt(getImportPromptValues());
+        promptText.textContent = prompt;
+    };
+
+    const togglePromptPanel = () => {
+        const isOpen = !promptPanel.hidden;
+        promptPanel.hidden = isOpen;
+        promptCard.classList.toggle('is-open', !isOpen);
+        promptToggleBtn.setAttribute('aria-expanded', String(!isOpen));
+        const toggleText = promptToggleBtn.querySelector('.import-prompt-toggle-text');
+        if (toggleText) toggleText.textContent = isOpen ? 'Show AI Prompt' : 'Hide AI Prompt';
+        
+        // Reset scroll position of the entire modal body when collapsing the panel
+        if (isOpen) {
+            const modalBody = document.querySelector('.import-questions-modal-body');
+            if (modalBody) {
+                modalBody.scrollTop = 0;
+            }
+        }
+    };
+
+    const togglePromptExpansion = () => {
+        const isExpanded = modal.classList.toggle('import-prompt-expanded');
+        expandPromptBtn.textContent = isExpanded ? 'Collapse Prompt' : 'Expand Prompt';
+        expandPromptBtn.setAttribute('aria-pressed', String(isExpanded));
+    };
+
+    const copyPromptToClipboard = async ({ openUrl } = {}) => {
+        const prompt = promptText.textContent || buildImportQuestionsPrompt(getImportPromptValues());
+        const doCopy = async () => {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(prompt);
+                return true;
+            }
+            const helper = document.createElement('textarea');
+            helper.value = prompt;
+            helper.setAttribute('readonly', 'readonly');
+            helper.style.position = 'fixed';
+            helper.style.left = '-9999px';
+            helper.style.top = '0';
+            document.body.appendChild(helper);
+            helper.select();
+            const success = document.execCommand('copy');
+            document.body.removeChild(helper);
+            return success;
+        };
+
+        try {
+            await doCopy();
+            toast('Prompt copied!');
+            copyPromptBtn.textContent = 'Copied ✓';
+            copyPromptBtn.disabled = true;
+            if (importPromptCopyResetTimer) window.clearTimeout(importPromptCopyResetTimer);
+            importPromptCopyResetTimer = window.setTimeout(() => {
+                copyPromptBtn.textContent = 'Copy Prompt';
+                copyPromptBtn.disabled = false;
+            }, 2000);
+            if (openUrl) window.open(openUrl, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            toast('Copy the prompt from the box');
+            promptText.focus();
+            if (typeof window.getSelection === 'function') {
+                const range = document.createRange();
+                range.selectNodeContents(promptText);
+                const selection = window.getSelection();
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+            }
+            if (openUrl) window.open(openUrl, '_blank', 'noopener,noreferrer');
+        }
+    };
+
+    const loadCsvFile = async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        csvInput.value = text;
+        syncPreviewPrompt();
+    };
+
+    const previewCsv = () => {
+        const result = parseImportQuestionsCsv(csvInput.value);
+        importQuestionsPreviewState = result;
+        renderImportQuestionsPreview(result);
+    };
+
+    const importQuestions = () => {
+        if (!importQuestionsPreviewState) {
+            renderImportQuestionsPreview(parseImportQuestionsCsv(csvInput.value));
+            return;
+        }
+
+        const result = importQuestionsPreviewState;
+        if (result.errors.length || result.rowErrors.length || !result.totalValidRows) {
+            renderImportQuestionsPreview(result);
+            return;
+        }
+
+        const paper = getActivePaper();
+        if (!paper) return;
+
+        const sectionLookup = new Map();
+        paper.sections.forEach(section => {
+            sectionLookup.set(normalizeImportCsvHeader(section.name), section);
+        });
+
+        const touchedSections = [];
+        let importedCount = 0;
+
+        result.validRows.forEach(row => {
+            const normalizedSectionName = normalizeImportCsvHeader(row.section);
+            let section = sectionLookup.get(normalizedSectionName);
+            if (!section) {
+                section = {
+                    id: uid('section'),
+                    name: row.section.trim(),
+                    layout: paper.layout || 'row',
+                    questions: [],
+                };
+                paper.sections.push(section);
+                sectionLookup.set(normalizedSectionName, section);
+                touchedSections.push(section);
+            }
+
+            const correctIndex = LABELS.indexOf(row.correctOption);
+            const question = newQuestion(row.question, row.options, correctIndex >= 0 ? correctIndex : 0);
+            question.layout = section.layout || paper.layout || 'row';
+            section.questions.push(question);
+            importedCount += 1;
+        });
+
+        state.activePaperId = paper.id;
+        state.activeSectionId = (touchedSections[0] || sectionLookup.get(normalizeImportCsvHeader(result.validRows[0].section)) || paper.sections[0])?.id || null;
+        render();
+        save();
+
+        const modalCount = document.querySelector('#importQuestionsModal .import-preview-count');
+        const validationMessage = document.getElementById('importQuestionsValidationMessage');
+        if (validationMessage) {
+            validationMessage.classList.remove('success');
+            validationMessage.hidden = true;
+            validationMessage.textContent = '';
+        }
+        if (modalCount) modalCount.textContent = `${importedCount} question${importedCount === 1 ? '' : 's'} imported successfully`;
+        hideModal();
+        toast(`${importedCount} question${importedCount === 1 ? '' : 's'} imported successfully.`);
+        importQuestionsPreviewState = null;
+    };
+
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+    fileInput.addEventListener('change', () => {
+        loadCsvFile().catch(() => {
+            const validationMessage = document.getElementById('importQuestionsValidationMessage');
+            if (validationMessage) {
+                validationMessage.textContent = 'Unable to read the selected CSV file.';
+                validationMessage.hidden = false;
+            }
+        });
+    });
+    csvInput.addEventListener('input', syncPreviewPrompt);
+    previewBtn.addEventListener('click', previewCsv);
+    confirmBtn.addEventListener('click', importQuestions);
+    copyPromptBtn.addEventListener('click', () => copyPromptToClipboard());
+    expandPromptBtn.addEventListener('click', togglePromptExpansion);
+    openChatGPTBtn.addEventListener('click', () => copyPromptToClipboard({ openUrl: IMPORT_QUESTIONS_PROMPT_OPEN_URLS.chatgpt }));
+    openGeminiBtn.addEventListener('click', () => copyPromptToClipboard({ openUrl: IMPORT_QUESTIONS_PROMPT_OPEN_URLS.gemini }));
+    promptToggleBtn.addEventListener('click', togglePromptPanel);
+    [promptSubject, promptClass, promptQuestionCount, promptDifficulty, promptTopic].forEach(input => {
+        input.addEventListener('input', syncImportPrompt);
+        input.addEventListener('change', syncImportPrompt);
+    });
+
+    modal.addEventListener('mousedown', e => {
+        modal._importMouseDownTarget = e.target;
+    });
+
+    modal.addEventListener('click', e => {
+        const isContent = e.target.closest('.import-questions-modal-content');
+        if (e.target === modal && modal._importMouseDownTarget === modal && !isContent) {
+            hideModal();
+        }
+    });
+}
+
+function normalizeImportCsvHeader(header) {
+    return String(header || '').trim().toLowerCase();
+}
+
+function getImportPromptValues() {
+    const subject = document.getElementById('importPromptSubject')?.value.trim() || IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.subject;
+    const className = document.getElementById('importPromptClass')?.value.trim() || IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.className;
+    const questionCountValue = parseInt(document.getElementById('importPromptQuestionCount')?.value, 10);
+    const questionCount = Number.isFinite(questionCountValue) && questionCountValue > 0 ? questionCountValue : IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.questionCount;
+    const difficulty = document.getElementById('importPromptDifficulty')?.value || IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.difficulty;
+    const topic = document.getElementById('importPromptTopic')?.value.trim() || '';
+
+    return { subject, className, questionCount, difficulty, topic };
+}
+
+function buildImportQuestionsPrompt(values) {
+    const topicLine = values.topic ? `Topic/Chapter: ${values.topic}\n` : '';
+    return `Create a multiple-choice question paper.
+
+Subject: ${values.subject}
+Class/Grade: ${values.className}
+${topicLine}Number of Questions: ${values.questionCount}
+Difficulty: ${values.difficulty}
+
+Generate exactly ${values.questionCount} multiple-choice questions.
+
+Return ONLY valid CSV.
+
+Use exactly these columns and this exact order:
+
+"section","question","option1","option2","option3","option4","correct_option"
+
+Example:
+
+"section","question","option1","option2","option3","option4","correct_option"
+"Mathematics","Degree measure of a circle is ___ degrees","90","180","270","360","D"
+"Mathematics","If a line intersects a circle at two distinct points, then it is called","Secant","Tangent","Median","Altitude","A"
+
+Rules:
+1. Every question must have exactly 4 answer options.
+2. correct_option must contain only A, B, C, or D.
+3. A = option1, B = option2, C = option3, D = option4.
+4. Put the subject or appropriate section name in the section column.
+5. Do not include numbering outside the CSV.
+6. Do not include explanations or answers outside the CSV.
+7. Properly escape commas and quotation marks according to CSV rules.
+8. Do not wrap the response in Markdown code fences.
+9. Output only the CSV header followed by the question rows.
+10. Make the questions appropriate for the requested class/grade, subject, topic, and difficulty.
+11. Keep the wording clear and suitable for school students.
+12. Avoid duplicate or near-duplicate questions.
+13. Ensure each question has a single unambiguous correct answer.
+14. Prefer practical, textbook-style wording over trick questions.
+15. Vary the wording and structure of the questions where possible.
+16. Keep all section names consistent for the same topic.
+17. Do not add any extra commentary before or after the CSV.
+18. If a topic is provided, keep most questions focused on that topic.
+19. If topic is blank, generate a balanced set of questions for the subject.
+20. Double-check that the CSV rows match the header exactly.`;
+}
+
+function parseImportQuestionsCsv(csvText) {
+    const source = String(csvText ?? '').replace(/^\uFEFF/, '');
+    const trimmedSource = source.trim();
+    if (!trimmedSource) {
+        return {
+            headers: [],
+            rows: [],
+            validRows: [],
+            rowErrors: [],
+            errors: ['CSV is empty.'],
+            totalRows: 0,
+            totalValidRows: 0,
+            sections: [],
+        };
+    }
+
+    const rows = [];
+    let currentRow = [];
+    let currentCell = '';
+    let inQuotes = false;
+
+    for (let index = 0; index < source.length; index++) {
+        const char = source[index];
+        const next = source[index + 1];
+
+        if (char === '"') {
+            if (inQuotes && next === '"') {
+                currentCell += '"';
+                index += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+
+        if (!inQuotes && char === ',') {
+            currentRow.push(currentCell);
+            currentCell = '';
+            continue;
+        }
+
+        if (!inQuotes && (char === '\n' || char === '\r')) {
+            if (char === '\r' && next === '\n') {
+                index += 1;
+            }
+            currentRow.push(currentCell);
+            rows.push(currentRow);
+            currentRow = [];
+            currentCell = '';
+            continue;
+        }
+
+        currentCell += char;
+    }
+
+    if (inQuotes) {
+        return {
+            headers: [],
+            rows: [],
+            validRows: [],
+            rowErrors: [],
+            errors: ['Malformed CSV: unmatched quotation mark.'],
+            totalRows: 0,
+            totalValidRows: 0,
+            sections: [],
+        };
+    }
+
+    currentRow.push(currentCell);
+    rows.push(currentRow);
+
+    while (rows.length && rows[0].every(cell => String(cell || '').trim() === '')) {
+        rows.shift();
+    }
+    while (rows.length && rows[rows.length - 1].every(cell => String(cell || '').trim() === '')) {
+        rows.pop();
+    }
+
+    if (!rows.length) {
+        return {
+            headers: [],
+            rows: [],
+            validRows: [],
+            rowErrors: [],
+            errors: ['CSV is empty.'],
+            totalRows: 0,
+            totalValidRows: 0,
+            sections: [],
+        };
+    }
+
+    const headers = rows.shift().map(cell => String(cell || '').trim());
+    const normalizedHeaders = headers.map(normalizeImportCsvHeader);
+    const errors = [];
+    const headerCounts = new Map();
+
+    normalizedHeaders.forEach(header => {
+        if (!header) return;
+        headerCounts.set(header, (headerCounts.get(header) || 0) + 1);
+    });
+
+    const duplicateHeaders = Array.from(headerCounts.entries())
+        .filter(([, count]) => count > 1)
+        .map(([header]) => header);
+
+    if (duplicateHeaders.length) {
+        errors.push(`Duplicate header(s): ${duplicateHeaders.join(', ')}.`);
+    }
+
+    const missingHeaders = IMPORT_QUESTIONS_REQUIRED_HEADERS.filter(required => !normalizedHeaders.includes(required));
+    if (missingHeaders.length) {
+        errors.push(`Missing required column(s): ${missingHeaders.join(', ')}.`);
+    }
+
+    const validRows = [];
+    const rowErrors = [];
+
+    rows.forEach((row, rowIndex) => {
+        const rowNumber = rowIndex + 2;
+        if (row.length !== headers.length) {
+            rowErrors.push({ rowNumber, errors: [`Malformed CSV row: expected ${headers.length} columns, found ${row.length}.`] });
+            return;
+        }
+
+        const record = {};
+        headers.forEach((header, columnIndex) => {
+            const normalizedHeader = normalizeImportCsvHeader(header);
+            record[normalizedHeader] = String(row[columnIndex] ?? '').trim();
+        });
+
+        const rowValidationErrors = [];
+        const section = record.section || '';
+        const question = record.question || '';
+        const option1 = record.option1 || '';
+        const option2 = record.option2 || '';
+        const option3 = record.option3 || '';
+        const option4 = record.option4 || '';
+        const correctOption = String(record.correct_option || '').trim().toUpperCase();
+
+        if (!section) rowValidationErrors.push('section is missing.');
+        if (!question) rowValidationErrors.push('question is missing.');
+        if (!option1) rowValidationErrors.push('option1 is missing.');
+        if (!option2) rowValidationErrors.push('option2 is missing.');
+        if (!option3) rowValidationErrors.push('option3 is missing.');
+        if (!option4) rowValidationErrors.push('option4 is missing.');
+        if (!['A', 'B', 'C', 'D'].includes(correctOption)) rowValidationErrors.push('correct_option must be A, B, C, or D.');
+
+        if (rowValidationErrors.length) {
+            rowErrors.push({ rowNumber, errors: rowValidationErrors });
+            return;
+        }
+
+        validRows.push({
+            rowNumber,
+            section,
+            question,
+            options: [option1, option2, option3, option4],
+            correctOption,
+        });
+    });
+
+    const sections = Array.from(new Set(validRows.map(row => row.section.trim()))).sort((a, b) => a.localeCompare(b));
+
+    return {
+        headers,
+        rows,
+        validRows,
+        rowErrors,
+        errors,
+        totalRows: rows.length,
+        totalValidRows: validRows.length,
+        sections,
+    };
+}
+
+function renderImportQuestionsPreview(result) {
+    const previewCount = document.querySelector('#importQuestionsModal .import-preview-count');
+    const previewEmpty = document.querySelector('#importQuestionsModal .import-preview-empty');
+    const previewList = document.getElementById('importQuestionsPreviewList');
+    const validationMessage = document.getElementById('importQuestionsValidationMessage');
+    const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+
+    if (!previewCount || !previewEmpty || !previewList || !validationMessage || !confirmBtn) return;
+
+    const hasErrors = result.errors.length > 0 || result.rowErrors.length > 0;
+    previewCount.textContent = `${result.totalValidRows} valid question${result.totalValidRows === 1 ? '' : 's'} in ${result.sections.length} section${result.sections.length === 1 ? '' : 's'}`;
+
+    if (hasErrors) {
+        const messages = [...result.errors, ...result.rowErrors.map(rowError => `Row ${rowError.rowNumber}: ${rowError.errors.join(' ')}`)];
+        validationMessage.textContent = messages.join('\n');
+        validationMessage.classList.remove('success');
+        validationMessage.hidden = false;
+    } else {
+        validationMessage.classList.add('success');
+        validationMessage.textContent = `Ready to import ${result.totalValidRows} question${result.totalValidRows === 1 ? '' : 's'} into ${result.sections.length} section${result.sections.length === 1 ? '' : 's'}.`;
+        validationMessage.hidden = false;
+    }
+
+    if (!result.totalValidRows) {
+        previewEmpty.textContent = 'No valid questions were found in the CSV.';
+        previewEmpty.hidden = false;
+        previewList.hidden = true;
+        previewList.innerHTML = '';
+        confirmBtn.disabled = true;
+        return;
+    }
+
+    const groupedRows = new Map();
+    result.validRows.forEach(row => {
+        if (!groupedRows.has(row.section)) groupedRows.set(row.section, []);
+        groupedRows.get(row.section).push(row);
+    });
+
+    previewEmpty.hidden = true;
+    previewList.hidden = false;
+    previewList.innerHTML = Array.from(groupedRows.entries()).map(([sectionName, sectionRows]) => `
+        <article class="import-preview-section">
+            <div class="import-preview-section-header">
+                <div class="import-preview-section-title">${esc(sectionName)}</div>
+                <div class="import-preview-section-count">${sectionRows.length} question${sectionRows.length === 1 ? '' : 's'}</div>
+            </div>
+            ${sectionRows.map((row, index) => `
+                <div class="import-preview-question">
+                    <div class="import-preview-question-text">${index + 1}. ${esc(row.question)}</div>
+                    <div class="import-preview-options">
+                        <div><span class="import-preview-option-label">A.</span> ${esc(row.options[0])}</div>
+                        <div><span class="import-preview-option-label">B.</span> ${esc(row.options[1])}</div>
+                        <div><span class="import-preview-option-label">C.</span> ${esc(row.options[2])}</div>
+                        <div><span class="import-preview-option-label">D.</span> ${esc(row.options[3])}</div>
+                    </div>
+                    <div class="import-preview-correct">Correct: ${esc(row.correctOption)}</div>
+                </div>
+            `).join('')}
+        </article>
+    `).join('');
+
+    confirmBtn.disabled = hasErrors || !result.totalValidRows;
 }
 
 function initDeletePaperModal() {
@@ -3669,6 +4301,15 @@ function openAdvancedEditorModal(editorId) {
             els.toast.style.pointerEvents = 'none';
         }
         modal.removeAttribute('hidden');
+
+        // ✅ Refresh the editor layout to guarantee container boundaries are calculated correctly
+        try {
+            if (typeof activeTuiEditorInstance.refresh === 'function') {
+                activeTuiEditorInstance.refresh();
+            }
+        } catch (e) {
+            console.warn('[AdvancedEditor] refresh failed on reuse:', e);
+        }
         return;
     }
 
@@ -3676,6 +4317,9 @@ function openAdvancedEditorModal(editorId) {
     toast('Loading Advanced Editor…');
 
     loadToastUI().then(() => {
+        // ✅ Show the modal first so that #tuiEditorContainer has visible dimensions!
+        modal.removeAttribute('hidden');
+
         createTuiEditorInstance();
 
         if (!tuiEditorReady) {
@@ -3683,13 +4327,20 @@ function openAdvancedEditorModal(editorId) {
             return;
         }
 
+        // Refresh layout on first creation to align toolbar elements properly
+        try {
+            if (activeTuiEditorInstance && typeof activeTuiEditorInstance.refresh === 'function') {
+                activeTuiEditorInstance.refresh();
+            }
+        } catch (e) {
+            console.warn('[AdvancedEditor] refresh failed on creation:', e);
+        }
+
         // Dismiss loading toast
         if (els.toast && els.toast.textContent.includes('Loading')) {
             els.toast.classList.remove('show');
             els.toast.style.pointerEvents = 'none';
         }
-
-        modal.removeAttribute('hidden');
         console.log('[AdvancedEditor] Modal visible.');
     }).catch(err => {
         console.error('[AdvancedEditor] Initialization error:', err);
@@ -3758,8 +4409,6 @@ function initAdvancedEditorModal() {
     loadToastUI()
         .then(() => {
             console.log('[AdvancedEditor] Toast UI pre-loaded in background.');
-            // Create the persistent instance now so the first open is instant.
-            createTuiEditorInstance();
         })
         .catch(err => {
             // Non-fatal: the editor will retry when the user actually clicks Table.
