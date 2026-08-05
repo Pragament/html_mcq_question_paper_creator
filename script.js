@@ -140,7 +140,7 @@ document.getElementById('tagScrollDownBtn').addEventListener('click', () => {
 document.addEventListener('paste', handlePaste);
 
 load();
-initEquationModal();
+initSaveEquationModal();
 initGlobalToolbar();
 initSectionModal();
 initAddQuestionsModal();
@@ -1364,6 +1364,7 @@ let savedSelectionStart = null;
 let savedSelectionEnd = null;
 let isEquationModalOpen = false;
 let equationActiveCategory = 'all';
+let customEquations = [];
 let equationFavorites = [];
 let equationRecent = [];
 
@@ -1430,6 +1431,16 @@ document.addEventListener('keyup', updateActiveSelection);
 document.addEventListener('mouseup', updateActiveSelection);
 document.addEventListener('focus', updateActiveSelection, true);
 try {
+    customEquations = JSON.parse(localStorage.getItem('school_mcq_paper_studio_custom_equations') || '[]');
+} catch (e) {
+    customEquations = [];
+}
+
+function saveCustomEquations() {
+    localStorage.setItem('school_mcq_paper_studio_custom_equations', JSON.stringify(customEquations));
+}
+
+try {
     equationFavorites = JSON.parse(localStorage.getItem('school_mcq_paper_studio_favorite_formulas') || '[]');
 } catch (e) {
     equationFavorites = [];
@@ -1448,6 +1459,8 @@ try {
 } catch (e) {
     equationRecent = [];
 }
+
+initEquationModal();
 
 function saveEquationFavorites() {
     localStorage.setItem('school_mcq_paper_studio_favorite_formulas', JSON.stringify(equationFavorites));
@@ -1521,7 +1534,7 @@ function initGlobalToolbar() {
     const equationBtn = document.getElementById('globalInsertEquation');
     if (equationBtn) {
         equationBtn.addEventListener('click', () => {
-            if (lastActiveEditorKey) insertEquation(lastActiveEditorKey);
+            insertEquation(lastActiveEditorKey);
         });
     }
     const tableBtn = document.getElementById('globalInsertTable');
@@ -1589,10 +1602,7 @@ function insertEquation(editorId, targetToken = null) {
         equationActiveCategory = 'all';
     }
     
-    const categoryBtns = document.querySelectorAll('#equationModal .category-btn');
-    categoryBtns.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.category === equationActiveCategory);
-    });
+    renderEquationCategories();
     
     // Toggle Mermaid vs Math views
     toggleEditorViewForCategory(equationActiveCategory);
@@ -1869,51 +1879,87 @@ function renderEquationList() {
         return;
     }
     
-    let list = [];
+    let builtinList = [];
+    let customList = [];
+    let directList = null;
+
     if (equationActiveCategory === 'recent') {
-        list = equationRecent;
+        directList = equationRecent;
     } else if (equationActiveCategory === 'favorites') {
-        list = FORMULA_LIBRARY.filter(f => equationFavorites.includes(f.id));
+        directList = [
+            ...FORMULA_LIBRARY.filter(f => equationFavorites.includes(f.id)),
+            ...customEquations.filter(f => equationFavorites.includes(f.id))
+        ];
     } else if (equationActiveCategory === 'all') {
-        list = FORMULA_LIBRARY;
+        builtinList = FORMULA_LIBRARY;
+        customList = customEquations;
     } else {
-        list = FORMULA_LIBRARY.filter(f => f.category === equationActiveCategory);
+        builtinList = FORMULA_LIBRARY.filter(f => f.category === equationActiveCategory);
+        customList = customEquations.filter(f => f.category === equationActiveCategory);
     }
 
     if (query) {
-        list = list.filter(f => 
+        const filterFn = f => 
             f.name.toLowerCase().includes(query) || 
             (f.description && f.description.toLowerCase().includes(query)) ||
             f.category.toLowerCase().includes(query) ||
-            f.latex.toLowerCase().includes(query)
-        );
+            f.latex.toLowerCase().includes(query);
+            
+        if (directList) {
+            directList = directList.filter(filterFn);
+        } else {
+            builtinList = builtinList.filter(filterFn);
+            customList = customList.filter(filterFn);
+        }
     }
 
-    listContainer.innerHTML = list.map(f => {
-        const isFav = equationFavorites.includes(f.id);
-        return `
-            <div class="equation-formula-card" data-id="${esc(f.id)}" data-latex="${esc(f.latex)}">
-                <button class="favorite-star-btn ${isFav ? 'active' : ''}" data-id="${esc(f.id)}" title="Favorite">★</button>
-                <div class="equation-formula-name">${esc(f.name)}</div>
-                <div class="equation-formula-render" id="card-render-${esc(f.id)}">${esc(f.latex)}</div>
-            </div>
-        `;
-    }).join('');
-
-    list.forEach(f => {
-        const el = document.getElementById(`card-render-${f.id}`);
-        if (el && window.katex) {
-            try {
-                window.katex.render(f.latex, el, { throwOnError: false });
-            } catch (err) {
-                // fall back to raw text
+    let html = '';
+    if (directList) {
+        if (directList.length === 0) {
+            html = `<div class="empty-state" style="padding: 32px 16px; text-align: center; color: var(--muted); grid-column: 1 / -1;">No equations found.</div>`;
+        } else {
+            html = directList.map(f => renderEquationCard(f)).join('');
+        }
+    } else {
+        if (builtinList.length > 0) {
+            html += `<div class="formula-section-header">My Equations</div>`;
+            html += customList.length > 0 ? customList.map(f => renderEquationCard(f)).join('') : `<div class="empty-state" style="padding: 16px; text-align: center; color: var(--muted); grid-column: 1 / -1; font-size: 13px;">No saved equations in this category yet.</div>`;
+            html += `<div class="formula-section-header">Built-in Formulas</div>`;
+            html += builtinList.map(f => renderEquationCard(f)).join('');
+        } else {
+            html += `<div class="formula-section-header">My Equations</div>`;
+            if (customList.length > 0) {
+                html += customList.map(f => renderEquationCard(f)).join('');
+            } else {
+                html += `<div class="empty-state" style="padding: 16px; text-align: center; color: var(--muted); grid-column: 1 / -1; font-size: 13px;">No saved equations in this category yet.</div>`;
             }
         }
-    });
+    }
+    listContainer.innerHTML = html;
+
+    const renderKaTeXForList = items => {
+        items.forEach(f => {
+            const el = document.getElementById(`card-render-${f.id}`);
+            if (el && window.katex) {
+                try {
+                    window.katex.render(f.latex, el, { throwOnError: false });
+                } catch (err) {
+                    // fall back
+                }
+            }
+        });
+    };
+    
+    if (directList) {
+        renderKaTeXForList(directList);
+    } else {
+        renderKaTeXForList(builtinList);
+        renderKaTeXForList(customList);
+    }
 
     listContainer.querySelectorAll('.equation-formula-card').forEach(card => {
         card.addEventListener('click', e => {
-            if (e.target.classList.contains('favorite-star-btn')) return;
+            if (e.target.closest('.favorite-star-btn') || e.target.closest('.card-action-btn')) return;
             e.stopPropagation();
             const latex = card.dataset.latex;
             const editor = document.getElementById('equationLatexEditor');
@@ -1946,6 +1992,326 @@ function renderEquationList() {
                 renderEquationList();
             }
         });
+    });
+
+    // Delete custom equation
+    listContainer.querySelectorAll('.del-eq-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            const eq = customEquations.find(item => item.id === id);
+            if (eq && confirm(`Delete saved equation "${eq.name}"?`)) {
+                customEquations = customEquations.filter(item => item.id !== id);
+                equationFavorites = equationFavorites.filter(fid => fid !== id);
+                saveCustomEquations();
+                saveEquationFavorites();
+                renderEquationCategories();
+                renderEquationList();
+                toast('Equation deleted');
+            }
+        });
+    });
+
+    // Duplicate custom equation
+    listContainer.querySelectorAll('.dup-eq-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            const eq = customEquations.find(item => item.id === id);
+            if (eq) {
+                const copy = {
+                    ...eq,
+                    id: 'custom_eq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    name: `${eq.name} Copy`,
+                    createdAt: new Date().toISOString(),
+                    lastModified: new Date().toISOString()
+                };
+                customEquations.push(copy);
+                saveCustomEquations();
+                renderEquationCategories();
+                renderEquationList();
+                toast('Equation duplicated');
+            }
+        });
+    });
+
+    // Edit/Move custom equation
+    listContainer.querySelectorAll('.edit-eq-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            const eq = customEquations.find(item => item.id === id);
+            if (eq) {
+                openSaveEquationModal(eq);
+            }
+        });
+    });
+}
+
+function renderEquationCard(f) {
+    const isFav = equationFavorites.includes(f.id);
+    const isCustom = f.isCustom || false;
+    
+    return `
+        <div class="equation-formula-card ${isCustom ? 'custom-eq' : ''}" data-id="${esc(f.id)}" data-latex="${esc(f.latex)}">
+            <button class="favorite-star-btn ${isFav ? 'active' : ''}" data-id="${esc(f.id)}" title="Favorite">★</button>
+            <div class="equation-formula-name" style="padding-right: 20px;">${esc(f.name)}</div>
+            <div class="equation-formula-render" id="card-render-${esc(f.id)}" style="margin-top: 8px; font-size: 13px; color: var(--text); min-height: 24px; display: flex; align-items: center; overflow-x: auto; white-space: nowrap; max-width: 100%; scrollbar-width: none;">${esc(f.latex)}</div>
+            ${isCustom ? `
+                <div class="equation-card-actions" style="margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px dashed var(--line); padding-top: 8px;">
+                    <button class="card-action-btn edit-eq-btn" data-id="${esc(f.id)}" title="Edit/Move">✏️</button>
+                    <button class="card-action-btn dup-eq-btn" data-id="${esc(f.id)}" title="Duplicate">📋</button>
+                    <button class="card-action-btn del-eq-btn" data-id="${esc(f.id)}" title="Delete">🗑️</button>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+function renderEquationCategories() {
+    const sidebar = document.getElementById('equationCategoriesList');
+    if (!sidebar) return;
+
+    const customCategories = Array.from(new Set(customEquations.map(eq => eq.category).filter(cat => cat && !['Mathematics', 'Physics', 'Chemistry'].includes(cat)))).sort();
+
+    let html = `
+        <button class="category-btn ${equationActiveCategory === 'all' ? 'active' : ''}" data-category="all">All Formulas</button>
+        <button class="category-btn ${equationActiveCategory === 'Mathematics' ? 'active' : ''}" data-category="Mathematics">Mathematics</button>
+        <button class="category-btn ${equationActiveCategory === 'Physics' ? 'active' : ''}\" data-category="Physics">Physics</button>
+        <button class="category-btn ${equationActiveCategory === 'Chemistry' ? 'active' : ''}" data-category="Chemistry">Chemistry</button>
+    `;
+
+    customCategories.forEach(cat => {
+        const isActive = equationActiveCategory === cat;
+        html += `
+            <div class="category-btn-row">
+                <button class="category-btn ${isActive ? 'active' : ''}" data-category="${esc(cat)}" style="flex-grow: 1; text-align: left;">📄 ${esc(cat)}</button>
+                <div class="category-actions" style="display: flex; gap: 4px; padding-right: 8px;">
+                    <button class="cat-action-btn rename-cat-btn" data-category="${esc(cat)}" title="Rename Category">✏️</button>
+                    <button class="cat-action-btn delete-cat-btn" data-category="${esc(cat)}" title="Delete Category">🗑️</button>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `
+        <button class="category-btn ${equationActiveCategory === 'recent' ? 'active' : ''}" data-category="recent">Recently Used</button>
+        <button class="category-btn ${equationActiveCategory === 'favorites' ? 'active' : ''}" data-category="favorites">Favorites</button>
+        <div class="sidebar-section-title" style="margin-top: 10px; padding: 0 12px; font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Diagrams</div>
+        <button class="category-btn ${equationActiveCategory === 'Mermaid' ? 'active' : ''}" data-category="Mermaid">Mermaid</button>
+    `;
+
+    sidebar.innerHTML = html;
+
+    // Category click listeners
+    sidebar.querySelectorAll('.category-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            equationActiveCategory = btn.dataset.category;
+            renderEquationCategories();
+            toggleEditorViewForCategory(equationActiveCategory);
+            renderEquationList();
+            
+            const mermaidCodeEditor = document.getElementById('mermaidCodeEditor');
+            const mermaidLivePreview = document.getElementById('mermaidLivePreview');
+            if (equationActiveCategory === 'Mermaid') {
+                if (mermaidCodeEditor && mermaidLivePreview) {
+                    if (!mermaidCodeEditor.value) {
+                        mermaidCodeEditor.value = `pie title Pets owned by staff\n    "Dogs" : 386\n    "Cats" : 85`;
+                    }
+                    validateAndRenderMermaid(mermaidCodeEditor.value, mermaidLivePreview);
+                }
+            }
+        });
+    });
+
+    // Rename Category listener
+    sidebar.querySelectorAll('.rename-cat-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const oldCat = btn.dataset.category;
+            const newCat = prompt(`Rename Category "${oldCat}" to:`, oldCat);
+            if (newCat && newCat.trim() && newCat.trim() !== oldCat) {
+                const trimmedNewCat = newCat.trim();
+                customEquations.forEach(eq => {
+                    if (eq.category === oldCat) {
+                        eq.category = trimmedNewCat;
+                        eq.lastModified = new Date().toISOString();
+                    }
+                });
+                saveCustomEquations();
+                if (equationActiveCategory === oldCat) {
+                    equationActiveCategory = trimmedNewCat;
+                }
+                renderEquationCategories();
+                renderEquationList();
+                toast(`Category renamed to "${trimmedNewCat}"`);
+            }
+        });
+    });
+
+    // Delete Category listener
+    sidebar.querySelectorAll('.delete-cat-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const cat = btn.dataset.category;
+            if (confirm(`Delete category "${cat}"? Equations in this category will be moved to Mathematics.`)) {
+                customEquations.forEach(eq => {
+                    if (eq.category === cat) {
+                        eq.category = 'Mathematics';
+                        eq.lastModified = new Date().toISOString();
+                    }
+                });
+                saveCustomEquations();
+                if (equationActiveCategory === cat) {
+                    equationActiveCategory = 'Mathematics';
+                }
+                renderEquationCategories();
+                renderEquationList();
+                toast(`Category deleted. Equations moved to Mathematics.`);
+            }
+        });
+    });
+}
+
+let editingEquationId = null;
+
+function openSaveEquationModal(editEq = null) {
+    const modal = document.getElementById('saveEquationModal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('saveEquationModalTitle');
+    const nameInput = document.getElementById('saveEquationName');
+    const categorySelect = document.getElementById('saveEquationCategory');
+    const customCategoryField = document.getElementById('customCategoryField');
+    const customCategoryInput = document.getElementById('saveEquationCustomCategory');
+    const tagsInput = document.getElementById('saveEquationTags');
+
+    if (editEq) {
+        editingEquationId = editEq.id;
+        titleEl.textContent = 'Edit Equation';
+        nameInput.value = editEq.name;
+        
+        const isBuiltinCat = ['Mathematics', 'Physics', 'Chemistry'].includes(editEq.category);
+        if (isBuiltinCat) {
+            categorySelect.value = editEq.category;
+            customCategoryField.style.display = 'none';
+            customCategoryInput.value = '';
+        } else {
+            categorySelect.value = 'custom';
+            customCategoryField.style.display = 'block';
+            customCategoryInput.value = editEq.category;
+        }
+        tagsInput.value = (editEq.tags || []).join(', ');
+    } else {
+        editingEquationId = null;
+        titleEl.textContent = 'Save Equation';
+        nameInput.value = '';
+        categorySelect.value = 'Mathematics';
+        customCategoryField.style.display = 'none';
+        customCategoryInput.value = '';
+        tagsInput.value = '';
+    }
+
+    modal.removeAttribute('hidden');
+}
+
+function initSaveEquationModal() {
+    const saveEquationBtn = document.getElementById('saveEquationBtn');
+    const modal = document.getElementById('saveEquationModal');
+    const closeBtn = document.getElementById('closeSaveEquationModalBtn');
+    const cancelBtn = document.getElementById('cancelSaveEquationBtn');
+    const confirmBtn = document.getElementById('confirmSaveEquationBtn');
+    const categorySelect = document.getElementById('saveEquationCategory');
+    const customCategoryField = document.getElementById('customCategoryField');
+    const nameInput = document.getElementById('saveEquationName');
+    const customCategoryInput = document.getElementById('saveEquationCustomCategory');
+    const tagsInput = document.getElementById('saveEquationTags');
+
+    if (!saveEquationBtn || !modal || !closeBtn || !cancelBtn || !confirmBtn || !categorySelect || !customCategoryField || !nameInput || !customCategoryInput || !tagsInput) return;
+
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
+        editingEquationId = null;
+    };
+
+    saveEquationBtn.addEventListener('click', () => openSaveEquationModal());
+
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+
+    categorySelect.addEventListener('change', () => {
+        if (categorySelect.value === 'custom') {
+            customCategoryField.style.display = 'block';
+            customCategoryInput.focus();
+        } else {
+            customCategoryField.style.display = 'none';
+        }
+    });
+
+    confirmBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        if (!name) {
+            alert('Equation Name is required.');
+            nameInput.focus();
+            return;
+        }
+
+        let category = categorySelect.value;
+        if (category === 'custom') {
+            category = customCategoryInput.value.trim();
+            if (!category) {
+                alert('Custom Category Name is required.');
+                customCategoryInput.focus();
+                return;
+            }
+        }
+
+        const tags = tagsInput.value.split(',')
+            .map(t => t.trim())
+            .filter(t => t.length > 0);
+
+        // Get the current LaTeX code from the editor
+        const latexEditor = document.getElementById('equationLatexEditor');
+        const latex = latexEditor ? latexEditor.value : '';
+
+        if (editingEquationId) {
+            // Update mode
+            const idx = customEquations.findIndex(item => item.id === editingEquationId);
+            const eq = idx >= 0 ? customEquations[idx] : null;
+            if (eq) {
+                eq.name = name;
+                eq.category = category;
+                eq.tags = tags;
+                eq.lastModified = new Date().toISOString();
+                eq.latex = latex;
+                customEquations.splice(idx, 1);
+                customEquations.unshift(eq);
+            }
+            toast('Equation updated');
+        } else {
+            // Create mode
+            if (!latex.trim()) {
+                alert('LaTeX content cannot be empty.');
+                return;
+            }
+            const newEq = {
+                id: 'custom_eq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                name: name,
+                latex: latex,
+                category: category,
+                createdAt: new Date().toISOString(),
+                lastModified: new Date().toISOString(),
+                tags: tags,
+                isCustom: true
+            };
+            customEquations.unshift(newEq);
+            toast('Equation saved');
+        }
+
+        saveCustomEquations();
+        hideModal();
+        renderEquationCategories();
+        renderEquationList();
     });
 }
 
@@ -2556,7 +2922,6 @@ function initEquationModal() {
     const insertBtn = document.getElementById('insertEquationBtn');
     const searchInput = document.getElementById('equationSearchInput');
     const latexEditor = document.getElementById('equationLatexEditor');
-    const categoryBtns = modal.querySelectorAll('.category-btn');
     const mermaidCodeEditor = document.getElementById('mermaidCodeEditor');
     const mermaidLivePreview = document.getElementById('mermaidLivePreview');
 
@@ -2620,26 +2985,7 @@ function initEquationModal() {
         mousedownTarget = null;
     });
 
-    categoryBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            categoryBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            equationActiveCategory = btn.dataset.category;
-            toggleEditorViewForCategory(equationActiveCategory);
-            renderEquationList();
-            
-            if (equationActiveCategory === 'Mermaid') {
-                if (mermaidCodeEditor && mermaidLivePreview) {
-                    if (!mermaidCodeEditor.value) {
-                        mermaidCodeEditor.value = `pie title Pets owned by staff
-    "Dogs" : 386
-    "Cats" : 85`;
-                    }
-                    validateAndRenderMermaid(mermaidCodeEditor.value, mermaidLivePreview);
-                }
-            }
-        });
-    });
+    renderEquationCategories();
 
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -2781,7 +3127,7 @@ function initEquationModal() {
                 return;
             }
 
-            const latex = latexEditor.value.trim();
+            const latex = (latexEditor?.value || activeMathfield?.value || '').trim();
             if (!latex) return;
             
             let formulaObj;
@@ -2839,6 +3185,7 @@ function initEquationModal() {
         });
     }
 }
+
 
 function insertHtmlIntoVisualEditor(editor, html, targetRange = null) {
     const template = document.createElement('template');
