@@ -321,7 +321,7 @@
                 </div>
                 
                 <div class="equation-layout-grid">
-                    <div class="equation-categories-sidebar">
+                    <div class="equation-categories-sidebar" id="equationCategoriesList">
                         <button class="category-btn active" data-category="all">All Formulas</button>
                         <button class="category-btn" data-category="Mathematics">Mathematics</button>
                         <button class="category-btn" data-category="Physics">Physics</button>
@@ -367,9 +367,48 @@
                     </div>
                 </div>
             </div>
-            <div class="equation-modal-footer">
+            <div class="equation-modal-footer" style="display: flex; gap: 8px;">
                 <button type="button" class="btn secondary" id="cancelEquationBtn">Cancel</button>
+                <button type="button" class="btn secondary" id="saveEquationBtn">Save Equation</button>
+                <div style="flex-grow: 1;"></div>
                 <button type="button" class="btn primary" id="insertEquationBtn">Insert Equation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Equation Modal -->
+    <div class="modal-overlay" id="saveEquationModal" hidden>
+        <div class="section-modal-content" style="max-width: 440px;">
+            <div class="section-modal-header">
+                <h3 id="saveEquationModalTitle">Save Equation</h3>
+                <button type="button" class="close-modal" id="closeSaveEquationModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="section-modal-body">
+                <div class="field">
+                    <label for="saveEquationName">Equation Name <span style="color: #ef4444;">*</span></label>
+                    <input type="text" id="saveEquationName" placeholder="e.g., Quadratic Formula" required />
+                </div>
+                <div class="field" style="margin-top: 12px;">
+                    <label for="saveEquationCategory">Subject Category <span style="color: #ef4444;">*</span></label>
+                    <select id="saveEquationCategory" style="width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px;">
+                        <option value="Mathematics">Mathematics</option>
+                        <option value="Physics">Physics</option>
+                        <option value="Chemistry">Chemistry</option>
+                        <option value="custom">Custom Category...</option>
+                    </select>
+                </div>
+                <div class="field" id="customCategoryField" style="margin-top: 12px; display: none;">
+                    <label for="saveEquationCustomCategory">Custom Category Name <span style="color: #ef4444;">*</span></label>
+                    <input type="text" id="saveEquationCustomCategory" placeholder="e.g., Biology" />
+                </div>
+                <div class="field" style="margin-top: 12px;">
+                    <label for="saveEquationTags">Tags (optional, comma-separated)</label>
+                    <input type="text" id="saveEquationTags" placeholder="e.g., algebra, quadratic" />
+                </div>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelSaveEquationBtn">Cancel</button>
+                <button type="button" class="btn primary" id="confirmSaveEquationBtn">Save</button>
             </div>
         </div>
     </div>

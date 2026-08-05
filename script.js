@@ -192,6 +192,9 @@ function normalize() {
             section.layout = ['row', 'grid2', 'column'].includes(section.layout) ? section.layout : (paper.layout || 'row');
             section.questions ||= [];
             section.questions.forEach(question => {
+                question.chapter ||= '';
+                question.topic ||= '';
+                question.subtopic ||= '';
                 question.options ||= [];
                 question.layout = ['row', 'grid2', 'column'].includes(question.layout) ? question.layout : (section.layout || paper.layout || 'row');
                 while (question.options.length < 4) {
@@ -249,6 +252,9 @@ function newQuestion(text = '', options = ['', '', '', ''], correctIndex = 0) {
         layout: 'row',
         correctIndex,
         marks: 1,
+        chapter: '',
+        topic: '',
+        subtopic: '',
         options: options.map((value, index) => newOption(index, value)),
     };
 }
@@ -268,6 +274,19 @@ function getActiveSection() {
 
 function render() {
     normalize();
+    
+    // Save metadata input focus
+    const activeEl = document.activeElement;
+    let activeMetadataFocusedField = null;
+    if (activeEl && activeEl.classList.contains('metadata-input')) {
+        activeMetadataFocusedField = {
+            qid: activeEl.dataset.qid,
+            field: activeEl.dataset.field,
+            selectionStart: activeEl.selectionStart,
+            selectionEnd: activeEl.selectionEnd
+        };
+    }
+    
     renderPaperList();
     renderPaperSetup();
     renderSectionTabs();
@@ -275,6 +294,25 @@ function render() {
     renderTeacherPanel();
     renderPrintPaper();
     save();
+    
+    // Restore metadata input focus
+    if (activeMetadataFocusedField) {
+        const selector = `.metadata-input[data-qid="${activeMetadataFocusedField.qid}"][data-field="${activeMetadataFocusedField.field}"]`;
+        const inputToFocus = els.workbench.querySelector(selector);
+        if (inputToFocus) {
+            inputToFocus.focus();
+            try {
+                inputToFocus.setSelectionRange(
+                    activeMetadataFocusedField.selectionStart,
+                    activeMetadataFocusedField.selectionEnd
+                );
+            } catch (e) {
+                // Ignore selection range errors
+            }
+            showMetadataAutocomplete(inputToFocus);
+        }
+    }
+    
     renderMathSoon();
     renderMermaidSoon();
 }
@@ -893,6 +931,7 @@ function renderWorkbench() {
     document.getElementById('deleteSectionBtn').addEventListener('click', deleteSection);
 
     bindRichEditors();
+    bindMetadataFields();
 
     els.workbench.querySelectorAll('[data-correct]').forEach(input => {
         input.addEventListener('change', () => {
@@ -978,6 +1017,23 @@ function questionCard(question, index) {
             </div>
             <div class="layout-row">
                 <span class="paste-hint">Answer: ${LABELS[question.correctIndex] || 'A'}</span>
+            </div>
+            <div class="question-metadata-row">
+                <div class="field" style="position: relative;">
+                    <label>Chapter</label>
+                    <input type="text" class="metadata-input chapter-input" data-qid="${question.id}" data-field="chapter" value="${esc(question.chapter || '')}" placeholder="e.g. Motion" autocomplete="off" />
+                    <div class="metadata-autocomplete-dropdown" hidden></div>
+                </div>
+                <div class="field" style="position: relative;">
+                    <label>Topic</label>
+                    <input type="text" class="metadata-input topic-input" data-qid="${question.id}" data-field="topic" value="${esc(question.topic || '')}" placeholder="e.g. Laws of Motion" autocomplete="off" />
+                    <div class="metadata-autocomplete-dropdown" hidden></div>
+                </div>
+                <div class="field" style="position: relative;">
+                    <label>Subtopic</label>
+                    <input type="text" class="metadata-input subtopic-input" data-qid="${question.id}" data-field="subtopic" value="${esc(question.subtopic || '')}" placeholder="e.g. Newton's First Law" autocomplete="off" />
+                    <div class="metadata-autocomplete-dropdown" hidden></div>
+                </div>
             </div>
         </article>
     `;
@@ -1078,6 +1134,149 @@ function bindRichEditors() {
         btn.addEventListener('click', () => insertEquation(btn.dataset.editorId));
     });
 }
+
+function getMetadataSuggestions(fieldName, question, paper) {
+    if (!paper) return [];
+    const questions = allQuestions(paper);
+    const values = questions.map(q => (q[fieldName] || '').trim()).filter(v => v.length > 0);
+    return Array.from(new Set(values));
+}
+
+let activeMetadataAutocompleteDropdown = null;
+
+function showMetadataAutocomplete(input) {
+    const qid = input.dataset.qid;
+    const fieldName = input.dataset.field;
+    const paper = getActivePaper();
+    const question = findQuestion(qid);
+    if (!question || !paper) return;
+
+    const suggestions = getMetadataSuggestions(fieldName, question, paper);
+    const query = input.value.trim().toLowerCase();
+    const filtered = query ? suggestions.filter(s => s.toLowerCase().startsWith(query)) : suggestions;
+
+    const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+    if (!dropdown) return;
+
+    if (filtered.length === 0) {
+        dropdown.setAttribute('hidden', 'true');
+        return;
+    }
+
+    dropdown.innerHTML = filtered.map((s, idx) => `
+        <div class="metadata-autocomplete-item" data-index="${idx}" data-val="${esc(s)}">${esc(s)}</div>
+    `).join('');
+    dropdown.removeAttribute('hidden');
+    dropdown.dataset.activeIndex = -1;
+    activeMetadataAutocompleteDropdown = dropdown;
+
+    dropdown.querySelectorAll('.metadata-autocomplete-item').forEach(item => {
+        item.addEventListener('mousedown', e => {
+            e.preventDefault();
+            selectSuggestion(input, item.dataset.val);
+        });
+    });
+}
+
+function selectSuggestion(input, val) {
+    input.value = val;
+    const qid = input.dataset.qid;
+    const fieldName = input.dataset.field;
+    const question = findQuestion(qid);
+    if (question) {
+        question[fieldName] = val;
+        save();
+    }
+    const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+    if (dropdown) {
+        dropdown.setAttribute('hidden', 'true');
+    }
+    input.blur();
+}
+
+function bindMetadataInputKeyboard(input) {
+    input.addEventListener('keydown', e => {
+        const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+        if (!dropdown || dropdown.hasAttribute('hidden')) return;
+
+        const items = dropdown.querySelectorAll('.metadata-autocomplete-item');
+        if (items.length === 0) return;
+
+        let activeIndex = parseInt(dropdown.dataset.activeIndex || '-1', 10);
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex++;
+            if (activeIndex >= items.length) activeIndex = 0;
+            updateActiveItem(items, activeIndex, dropdown);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex--;
+            if (activeIndex < 0) activeIndex = items.length - 1;
+            updateActiveItem(items, activeIndex, dropdown);
+        } else if (e.key === 'Enter') {
+            if (activeIndex >= 0 && activeIndex < items.length) {
+                e.preventDefault();
+                selectSuggestion(input, items[activeIndex].dataset.val);
+            } else {
+                input.blur();
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            dropdown.setAttribute('hidden', 'true');
+        }
+    });
+}
+
+function updateActiveItem(items, activeIndex, dropdown) {
+    dropdown.dataset.activeIndex = activeIndex;
+    items.forEach((item, idx) => {
+        if (idx === activeIndex) {
+            item.classList.add('active');
+            item.scrollIntoView({ block: 'nearest' });
+        } else {
+            item.classList.remove('active');
+        }
+    });
+}
+
+function bindMetadataFields() {
+    els.workbench.querySelectorAll('.metadata-input').forEach(input => {
+        input.addEventListener('focus', () => {
+            showMetadataAutocomplete(input);
+        });
+        
+        input.addEventListener('input', () => {
+            const qid = input.dataset.qid;
+            const fieldName = input.dataset.field;
+            const question = findQuestion(qid);
+            if (question) {
+                question[fieldName] = input.value;
+                save();
+            }
+            showMetadataAutocomplete(input);
+        });
+
+        input.addEventListener('blur', () => {
+            setTimeout(() => {
+                const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+                if (dropdown) {
+                    dropdown.setAttribute('hidden', 'true');
+                }
+            }, 200);
+        });
+
+        bindMetadataInputKeyboard(input);
+    });
+}
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('.field')) {
+        document.querySelectorAll('.metadata-autocomplete-dropdown').forEach(dropdown => {
+            dropdown.setAttribute('hidden', 'true');
+        });
+    }
+});
 
 function updateFieldFromEditor(editorId, markdown) {
     const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
@@ -3067,7 +3266,14 @@ function renderPrintPaper() {
                 <div class="print-question-card">
                     <div class="print-question-header">
                         <span class="print-q-number">${index + 1}.</span>
-                        <div class="print-q-text">${markdownToVisualHtml(question.text)}</div>
+                        <div class="print-q-text">
+                            ${markdownToVisualHtml(question.text)}
+                            ${(question.chapter || question.topic || question.subtopic) ? `
+                                <div class="print-question-metadata" style="font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic;">
+                                    [Chapter: ${esc(question.chapter || '-')} | Topic: ${esc(question.topic || '-')} | Subtopic: ${esc(question.subtopic || '-')}]
+                                </div>
+                            ` : ''}
+                        </div>
                     </div>
                     <div class="print-options-grid print-${question.layout || 'row'}">
                         ${optionsHtml}
@@ -3660,6 +3866,9 @@ function initImportQuestionsModal() {
 
             const correctIndex = LABELS.indexOf(row.correctOption);
             const question = newQuestion(row.question, row.options, correctIndex >= 0 ? correctIndex : 0);
+            question.chapter = row.chapter || '';
+            question.topic = row.topic || '';
+            question.subtopic = row.subtopic || '';
             question.layout = section.layout || paper.layout || 'row';
             section.questions.push(question);
             importedCount += 1;
@@ -3780,6 +3989,220 @@ Rules:
 20. Double-check that the CSV rows match the header exactly.`;
 }
 
+function getUploadedFilename() {
+    if (typeof document === 'undefined') return null;
+    const fileInput = document.getElementById('importQuestionsFileInput');
+    const file = fileInput?.files?.[0];
+    if (file) {
+        return file.name.replace(/\.[^/.]+$/, "");
+    }
+    return null;
+}
+
+function parseImportQuestionsPlainText(source, defaultSection) {
+    const lines = String(source ?? '').split(/\r\n|\r|\n/);
+    const parsedQuestions = [];
+    const errors = [];
+    
+    let currentSection = defaultSection || 'General';
+    let currentQuestionText = '';
+    let currentOptions = [];
+    let currentAnswer = '';
+    let currentQuestionNumber = null;
+    
+    const optionRegex = /^\s*[*_\-\u2022\u25CF]*\s*[*_]*(?:([a-d1-4])[\).]|(•))\s*(.*)/i;
+    const answerRegex = /^\s*[*_]*(?:correct\s+answer|answer|ans|correct)\s*[*_]*\s*[:\.-]?\s*[*_]*\s*([a-d1-4])\b/i;
+    const questionRegex = /^\s*[*_#\-\u2022\u25CF]*\s*(?:q(?:uestion)?\s*\d+\s*[:\.]?|\d+[\)\.:]|\#+\s*q(?:uestion)?\s*\d+)/i;
+    
+    function stripMarkdown(text) {
+        let t = text.trim();
+        t = t.replace(/^#+\s*/, '');
+        
+        let changed = true;
+        while (changed) {
+            changed = false;
+            if (t.startsWith('**') && t.endsWith('**')) {
+                t = t.slice(2, -2).trim();
+                changed = true;
+            } else if (t.startsWith('__') && t.endsWith('__')) {
+                t = t.slice(2, -2).trim();
+                changed = true;
+            } else if (t.startsWith('*') && t.endsWith('*')) {
+                t = t.slice(1, -1).trim();
+                changed = true;
+            } else if (t.startsWith('_') && t.endsWith('_')) {
+                t = t.slice(1, -1).trim();
+                changed = true;
+            }
+        }
+        return t;
+    }
+    
+    function cleanQuotes(text) {
+        let t = text.trim();
+        if (t.startsWith('"') && t.endsWith('"')) {
+            t = t.substring(1, t.length - 1).trim();
+        } else if (t.startsWith("'") && t.endsWith("'")) {
+            t = t.substring(1, t.length - 1).trim();
+        }
+        return t;
+    }
+    
+    function isQuestionLine(index) {
+        const line = lines[index].trim();
+        if (!line) return false;
+        if (questionRegex.test(line)) {
+            return true;
+        }
+        for (let i = index + 1; i < lines.length; i++) {
+            const nextLine = lines[i].trim();
+            if (!nextLine) continue;
+            if (questionRegex.test(nextLine) || answerRegex.test(nextLine)) {
+                break;
+            }
+            if (optionRegex.test(nextLine)) {
+                return true;
+            }
+            break;
+        }
+        return false;
+    }
+    
+    function commitQuestion() {
+        const qText = currentQuestionText.trim();
+        if (!qText) return;
+        
+        const qNum = currentQuestionNumber || (parsedQuestions.length + 1);
+        
+        const questionErrors = [];
+        const labelNames = ['A', 'B', 'C', 'D'];
+        for (let idx = 0; idx < 4; idx++) {
+            if (currentOptions[idx] === undefined || currentOptions[idx] === '') {
+                questionErrors.push(`Question ${qNum} is missing Option ${labelNames[idx]}`);
+            }
+        }
+        
+        if (questionErrors.length) {
+            errors.push(...questionErrors);
+        }
+        
+        const cleanOptions = [];
+        for (let idx = 0; idx < 4; idx++) {
+            cleanOptions.push(currentOptions[idx] || '');
+        }
+        
+        parsedQuestions.push({
+            rowNumber: parsedQuestions.length + 1,
+            section: currentSection,
+            question: qText,
+            options: cleanOptions,
+            correctOption: currentAnswer || 'A',
+            originalOptionsCount: currentOptions.filter(x => x !== undefined && x !== '').length
+        });
+        
+        currentQuestionText = '';
+        currentOptions = [];
+        currentAnswer = '';
+        currentQuestionNumber = null;
+    }
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const answerMatch = line.match(answerRegex);
+        if (answerMatch) {
+            const ansVal = answerMatch[1].toUpperCase();
+            let correctLetter = 'A';
+            if (ansVal === 'A' || ansVal === '1') correctLetter = 'A';
+            else if (ansVal === 'B' || ansVal === '2') correctLetter = 'B';
+            else if (ansVal === 'C' || ansVal === '3') correctLetter = 'C';
+            else if (ansVal === 'D' || ansVal === '4') correctLetter = 'D';
+            currentAnswer = correctLetter;
+            continue;
+        }
+        
+        // Priority 1: Definite question lines
+        if (questionRegex.test(line)) {
+            commitQuestion();
+            
+            const numMatch = line.match(/^(?:q(?:uestion)?\s*(\d+)|\s*(\d+)[\)\.:])/i);
+            if (numMatch) {
+                currentQuestionNumber = parseInt(numMatch[1] || numMatch[2], 10);
+            }
+            
+            let qText = stripMarkdown(line);
+            const prefixMatch = qText.match(/^\s*[*_#\-\u2022\u25CF]*\s*(?:q(?:uestion)?\s*\d+\s*[:\.]?|\d+[\)\.:]|\#+\s*q(?:uestion)?\s*\d+)\s*/i);
+            if (prefixMatch) {
+                qText = qText.substring(prefixMatch[0].length);
+            }
+            
+            currentQuestionText = cleanQuotes(stripMarkdown(qText));
+            continue;
+        }
+        
+        // Priority 2: Option lines
+        const optionMatch = line.match(optionRegex);
+        if (optionMatch) {
+            let optionIndex = -1;
+            if (optionMatch[1]) {
+                const label = optionMatch[1].toUpperCase();
+                if (label === 'A' || label === '1') optionIndex = 0;
+                else if (label === 'B' || label === '2') optionIndex = 1;
+                else if (label === 'C' || label === '3') optionIndex = 2;
+                else if (label === 'D' || label === '4') optionIndex = 3;
+            } else {
+                optionIndex = currentOptions.filter(x => x !== undefined).length;
+            }
+            if (optionIndex >= 0 && optionIndex < 4) {
+                currentOptions[optionIndex] = cleanQuotes(stripMarkdown(optionMatch[3]));
+            }
+            continue;
+        }
+        
+        // Priority 3: Fallback question line (unnumbered)
+        if (isQuestionLine(i)) {
+            commitQuestion();
+            
+            const numMatch = line.match(/^(?:q(?:uestion)?\s*(\d+)|\s*(\d+)[\)\.:])/i);
+            if (numMatch) {
+                currentQuestionNumber = parseInt(numMatch[1] || numMatch[2], 10);
+            }
+            
+            let qText = stripMarkdown(line);
+            const prefixMatch = qText.match(/^\s*[*_#\-\u2022\u25CF]*\s*(?:q(?:uestion)?\s*\d+\s*[:\.]?|\d+[\)\.:]|\#+\s*q(?:uestion)?\s*\d+)\s*/i);
+            if (prefixMatch) {
+                qText = qText.substring(prefixMatch[0].length);
+            }
+            
+            currentQuestionText = cleanQuotes(stripMarkdown(qText));
+        } else {
+            if (currentQuestionText) {
+                currentQuestionText += ' ' + cleanQuotes(stripMarkdown(line));
+            } else {
+                commitQuestion();
+                currentSection = cleanQuotes(stripMarkdown(line));
+            }
+        }
+    }
+    
+    commitQuestion();
+    
+    const sections = Array.from(new Set(parsedQuestions.map(q => q.section))).sort((a, b) => a.localeCompare(b));
+    const validRows = parsedQuestions.filter(q => q.originalOptionsCount === 4);
+    
+    return {
+        headers: ['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option'],
+        rows: parsedQuestions.map(q => [q.section, q.question, ...q.options, q.correctOption]),
+        validRows: validRows,
+        rowErrors: [],
+        errors: errors,
+        totalRows: parsedQuestions.length,
+        totalValidRows: validRows.length,
+        sections: sections,
+    };
+}
+
 function parseImportQuestionsCsv(csvText) {
     const source = String(csvText ?? '').replace(/^\uFEFF/, '');
     const trimmedSource = source.trim();
@@ -3794,6 +4217,14 @@ function parseImportQuestionsCsv(csvText) {
             totalValidRows: 0,
             sections: [],
         };
+    }
+
+    const firstLine = trimmedSource.split(/\r?\n/)[0].toLowerCase();
+    const hasHeaders = firstLine.includes('question') && (firstLine.includes('correct_option') || firstLine.includes('correct option'));
+
+    if (!hasHeaders) {
+        const defaultSection = getUploadedFilename() || 'General';
+        return parseImportQuestionsPlainText(source, defaultSection);
     }
 
     const rows = [];
@@ -3938,6 +4369,9 @@ function parseImportQuestionsCsv(csvText) {
             question,
             options: [option1, option2, option3, option4],
             correctOption,
+            chapter: record.chapter || '',
+            topic: record.topic || '',
+            subtopic: record.subtopic || '',
         });
     });
 
@@ -5564,7 +5998,7 @@ function exportBackup() {
 function exportQuestionsCsv() {
     const paper = getActivePaper();
     if (!paper) return;
-    const rows = [['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option']];
+    const rows = [['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option', 'chapter', 'topic', 'subtopic']];
     paper.sections.forEach(section => {
         section.questions.forEach(question => {
             rows.push([
@@ -5575,6 +6009,9 @@ function exportQuestionsCsv() {
                 plainText(question.options[2]?.text || ''),
                 plainText(question.options[3]?.text || ''),
                 LABELS[question.correctIndex] || 'A',
+                question.chapter || '',
+                question.topic || '',
+                question.subtopic || '',
             ]);
         });
     });
@@ -6618,6 +7055,11 @@ function buildWordHtml(paper) {
             questionBlocks.push(`
                 <div class="question">
                     <p><b>${globalIndex})</b> ${formatForWord(question.text)}</p>
+                    ${(question.chapter || question.topic || question.subtopic) ? `
+                        <p style="font-size: 10pt; color: #666666; font-style: italic; margin-top: 2pt; margin-bottom: 2pt; margin-left: 18pt;">
+                            [Chapter: ${esc(question.chapter || '-')} | Topic: ${esc(question.topic || '-')} | Subtopic: ${esc(question.subtopic || '-')}]
+                        </p>
+                    ` : ''}
                     ${optionsForWord(question)}
                 </div>
             `);
