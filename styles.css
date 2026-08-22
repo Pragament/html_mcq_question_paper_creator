@@ -1181,6 +1181,7 @@ button {
         border-right: none;
         border-bottom: 1px solid var(--line);
         max-height: 320px;
+    }
     /* Enforce word-by-word wrapping and break rules for questions and option cards */
     .question-body-editor,
     .option-card textarea,
@@ -3613,17 +3614,13 @@ div[class*="ML__keyboard"] {
 }
 
 /* ── Layout dropdown ── */
-    font-size: 13px; /* Increased font size for better readability */
-    line-height: 1.6; /* Adjusted line height for better spacing */
+.tbl-tool-dropdown {
+    position: relative;
     display: inline-flex;
 }
-    word-break: break-word; /* Added word-break for long words */
-    overflow: visible; /* Changed overflow to visible */
-    min-height: 20rem; /* Set minimum height for the code block */
+.tbl-tool-dropdown-menu {
+    position: absolute;
     top: calc(100% + 4px);
-.import-questions-modal-content.import-prompt-expanded .import-prompt-code-block {
-    min-height: 28rem; /* Set minimum height for expanded code block */
-}
     left: 50%;
     transform: translateX(-50%);
     background: var(--card, #ffffff);

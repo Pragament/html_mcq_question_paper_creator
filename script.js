@@ -4502,49 +4502,13 @@ function getImportPromptValues() {
 }
 
 function buildImportQuestionsPrompt(values) {
-    const topicLine = values.topic ? `Topic/Chapter: ${values.topic}\n` : '';
-    return `Create a multiple-choice question paper.
-
-Subject: ${values.subject}
-Class/Grade: ${values.className}
-${topicLine}Number of Questions: ${values.questionCount}
-Difficulty: ${values.difficulty}
-
-Generate exactly ${values.questionCount} multiple-choice questions.
-
-Return ONLY valid CSV.
-
-Use exactly these columns and this exact order:
-
-"section","question","option1","option2","option3","option4","correct_option"
-
-Example:
+    return `Convert the entire uploaded PDF into CSV text in this exact format:
 
 "section","question","option1","option2","option3","option4","correct_option"
 "Mathematics","Degree measure of a circle is ___ degrees","90","180","270","360","D"
-"Mathematics","If a line intersects a circle at two distinct points, then it is called","Secant","Tangent","Median","Altitude","A"
+"Mathematics","If a line intersect a circle in two distinct points, then it is called","Secant","tangent","median","altitude","A"
 
-Rules:
-1. Every question must have exactly 4 answer options.
-2. correct_option must contain only A, B, C, or D.
-3. A = option1, B = option2, C = option3, D = option4.
-4. Put the subject or appropriate section name in the section column.
-5. Do not include numbering outside the CSV.
-6. Do not include explanations or answers outside the CSV.
-7. Properly escape commas and quotation marks according to CSV rules.
-8. Do not wrap the response in Markdown code fences.
-9. Output only the CSV header followed by the question rows.
-10. Make the questions appropriate for the requested class/grade, subject, topic, and difficulty.
-11. Keep the wording clear and suitable for school students.
-12. Avoid duplicate or near-duplicate questions.
-13. Ensure each question has a single unambiguous correct answer.
-14. Prefer practical, textbook-style wording over trick questions.
-15. Vary the wording and structure of the questions where possible.
-16. Keep all section names consistent for the same topic.
-17. Do not add any extra commentary before or after the CSV.
-18. If a topic is provided, keep most questions focused on that topic.
-19. If topic is blank, generate a balanced set of questions for the subject.
-20. Double-check that the CSV rows match the header exactly.`;
+Extract ALL questions from the whole PDF and return them in the same format. Do not skip or create questions.`;
 }
 
 function getUploadedFilename() {
