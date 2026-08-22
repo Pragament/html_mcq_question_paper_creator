@@ -325,7 +325,7 @@
                 </div>
                 
                 <div class="equation-layout-grid">
-                    <div class="equation-categories-sidebar">
+                    <div class="equation-categories-sidebar" id="equationCategoriesList">
                         <button class="category-btn active" data-category="all">All Formulas</button>
                         <button class="category-btn" data-category="Mathematics">Mathematics</button>
                         <button class="category-btn" data-category="Physics">Physics</button>
@@ -371,9 +371,48 @@
                     </div>
                 </div>
             </div>
-            <div class="equation-modal-footer">
+            <div class="equation-modal-footer" style="display: flex; gap: 8px;">
                 <button type="button" class="btn secondary" id="cancelEquationBtn">Cancel</button>
+                <button type="button" class="btn secondary" id="saveEquationBtn">Save Equation</button>
+                <div style="flex-grow: 1;"></div>
                 <button type="button" class="btn primary" id="insertEquationBtn">Insert Equation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Equation Modal -->
+    <div class="modal-overlay" id="saveEquationModal" hidden>
+        <div class="section-modal-content" style="max-width: 440px;">
+            <div class="section-modal-header">
+                <h3 id="saveEquationModalTitle">Save Equation</h3>
+                <button type="button" class="close-modal" id="closeSaveEquationModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="section-modal-body">
+                <div class="field">
+                    <label for="saveEquationName">Equation Name <span style="color: #ef4444;">*</span></label>
+                    <input type="text" id="saveEquationName" placeholder="e.g., Quadratic Formula" required />
+                </div>
+                <div class="field" style="margin-top: 12px;">
+                    <label for="saveEquationCategory">Subject Category <span style="color: #ef4444;">*</span></label>
+                    <select id="saveEquationCategory" style="width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px;">
+                        <option value="Mathematics">Mathematics</option>
+                        <option value="Physics">Physics</option>
+                        <option value="Chemistry">Chemistry</option>
+                        <option value="custom">Custom Category...</option>
+                    </select>
+                </div>
+                <div class="field" id="customCategoryField" style="margin-top: 12px; display: none;">
+                    <label for="saveEquationCustomCategory">Custom Category Name <span style="color: #ef4444;">*</span></label>
+                    <input type="text" id="saveEquationCustomCategory" placeholder="e.g., Biology" />
+                </div>
+                <div class="field" style="margin-top: 12px;">
+                    <label for="saveEquationTags">Tags (optional, comma-separated)</label>
+                    <input type="text" id="saveEquationTags" placeholder="e.g., algebra, quadratic" />
+                </div>
+            </div>
+            <div class="section-modal-footer">
+                <button type="button" class="btn secondary" id="cancelSaveEquationBtn">Cancel</button>
+                <button type="button" class="btn primary" id="confirmSaveEquationBtn">Save</button>
             </div>
         </div>
     </div>
@@ -492,6 +531,112 @@
             <div class="section-modal-footer">
                 <button type="button" class="btn secondary" id="cancelWordExportModalBtn">Cancel</button>
                 <button type="button" class="btn primary" id="confirmWordExportModalBtn">Download</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Questions Modal -->
+    <div class="modal-overlay" id="importQuestionsModal" hidden>
+        <div class="import-questions-modal-content">
+            <div class="section-modal-header import-questions-modal-header">
+                <h2>Import Questions from AI / CSV</h2>
+                <button type="button" class="modal-close-btn" id="closeImportQuestionsModalBtn" title="Close">&times;</button>
+            </div>
+            <div class="import-questions-modal-body">
+                <div class="import-method-grid">
+                    <section class="import-method-card">
+                        <h3>Upload CSV</h3>
+                        <p>Choose a CSV file from your device.</p>
+                        <input type="file" id="importQuestionsFileInput" accept=".csv,text/csv" />
+                    </section>
+                    <section class="import-method-card">
+                        <h3>Paste CSV</h3>
+                        <p>Paste AI-generated CSV directly here.</p>
+                        <textarea id="importQuestionsCsvInput" placeholder="Paste CSV content here..."></textarea>
+                    </section>
+                </div>
+
+                <div class="import-validation-message" id="importQuestionsValidationMessage" hidden></div>
+
+                <section class="import-preview-card" aria-live="polite">
+                    <div class="import-preview-head">
+                        <h3>Preview</h3>
+                        <span class="import-preview-count">No CSV loaded</span>
+                    </div>
+                    <div class="import-preview-empty">
+                        Preview, validation, and import mapping will be added in the next stage.
+                    </div>
+                    <div class="import-preview-list" id="importQuestionsPreviewList" hidden></div>
+                </section>
+
+                <section class="import-prompt-card">
+                    <button type="button" class="import-prompt-toggle" id="importPromptToggleBtn" aria-expanded="false" aria-controls="importPromptPanel">
+                        <span class="import-prompt-toggle-label">Generate Questions with AI</span>
+                        <span class="import-prompt-toggle-state">
+                            <span class="import-prompt-toggle-text">Show AI Prompt</span>
+                            <span class="import-prompt-toggle-chevron" aria-hidden="true">⌄</span>
+                        </span>
+                    </button>
+                    <div class="import-prompt-panel" id="importPromptPanel" hidden>
+                        <div class="import-prompt-fields">
+                            <label class="import-prompt-field">
+                                <span>Subject</span>
+                                <input type="text" id="importPromptSubject" placeholder="Mathematics" />
+                            </label>
+                            <label class="import-prompt-field">
+                                <span>Class / Grade</span>
+                                <input type="text" id="importPromptClass" placeholder="IX" />
+                            </label>
+                            <label class="import-prompt-field">
+                                <span>Number of Questions</span>
+                                <input type="number" id="importPromptQuestionCount" min="1" step="1" value="10" />
+                            </label>
+                            <label class="import-prompt-field">
+                                <span>Difficulty</span>
+                                <select id="importPromptDifficulty">
+                                    <option value="Easy">Easy</option>
+                                    <option value="Medium" selected>Medium</option>
+                                    <option value="Hard">Hard</option>
+                                    <option value="Mixed">Mixed</option>
+                                </select>
+                            </label>
+                            <label class="import-prompt-field import-prompt-field-wide">
+                                <span>Optional Topic / Chapter</span>
+                                <input type="text" id="importPromptTopic" placeholder="Circles" />
+                            </label>
+                        </div>
+
+                        <div class="import-prompt-code-card">
+                            <div class="import-prompt-code-head">
+                                <div>
+                                    <h3>AI Question Generator Prompt</h3>
+                                    <p>Copy this prompt into ChatGPT, Gemini, Claude, Copilot, or another AI tool.</p>
+                                </div>
+                                <div class="import-prompt-actions">
+                                    <button type="button" class="btn" id="copyImportQuestionsPromptBtn">Copy Prompt</button>
+                                    <button type="button" class="btn" id="expandImportQuestionsPromptBtn">Expand Prompt</button>
+                                    <button type="button" class="btn" id="openChatGPTBtn">Open ChatGPT</button>
+                                    <button type="button" class="btn" id="openGeminiBtn">Open Gemini</button>
+                                </div>
+                            </div>
+                            <pre id="importQuestionsPromptText" class="import-prompt-code-block" tabindex="0"></pre>
+                        </div>
+
+                        <div class="import-prompt-steps">
+                            <strong>How to use:</strong>
+                            <ol>
+                                <li>Click "Copy Prompt".</li>
+                                <li>Paste the prompt into ChatGPT, Gemini, Copilot, or your preferred AI tool.</li>
+                                <li>Copy the generated CSV and paste it into the "Paste CSV" box above, then click "Preview Questions".</li>
+                            </ol>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="section-modal-footer import-questions-modal-footer">
+                <button type="button" class="btn secondary" id="cancelImportQuestionsBtn">Cancel</button>
+                <button type="button" class="btn primary" id="previewImportQuestionsBtn">Preview Questions</button>
+                <button type="button" class="btn success" id="confirmImportQuestionsBtn" disabled>Import Questions</button>
             </div>
         </div>
     </div>

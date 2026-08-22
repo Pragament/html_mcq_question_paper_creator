@@ -10,6 +10,18 @@ const LAYOUTS = [
     { id: 'grid2', label: '2x2' },
     { id: 'column', label: '4x1' },
 ];
+const IMPORT_QUESTIONS_REQUIRED_HEADERS = ['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option'];
+const IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS = {
+    subject: 'Mathematics',
+    className: 'IX',
+    questionCount: 10,
+    difficulty: 'Medium',
+    topic: '',
+};
+const IMPORT_QUESTIONS_PROMPT_OPEN_URLS = {
+    chatgpt: 'https://chatgpt.com/',
+    gemini: 'https://gemini.google.com/',
+};
 const DOCX_NS = {
     w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
     r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
@@ -80,6 +92,8 @@ const FORMULA_LIBRARY = [
 ];
 
 let activeMathfield = null;
+let importQuestionsPreviewState = null;
+let importPromptCopyResetTimer = null;
 
 let state = {
     papers: [],
@@ -162,10 +176,11 @@ if (sidebarBackdrop) {
 document.addEventListener('paste', handlePaste);
 
 load();
-initEquationModal();
+initSaveEquationModal();
 initGlobalToolbar();
 initSectionModal();
 initAddQuestionsModal();
+initImportQuestionsModal();
 initDeletePaperModal();
 initWordExportModal();
 initLogoContextMenu();
@@ -213,6 +228,9 @@ function normalize() {
             section.layout = ['row', 'grid2', 'column'].includes(section.layout) ? section.layout : (paper.layout || 'row');
             section.questions ||= [];
             section.questions.forEach(question => {
+                question.chapter ||= '';
+                question.topic ||= '';
+                question.subtopic ||= '';
                 question.options ||= [];
                 question.layout = ['row', 'grid2', 'column'].includes(question.layout) ? question.layout : (section.layout || paper.layout || 'row');
                 while (question.options.length < 4) {
@@ -278,6 +296,9 @@ function newQuestion(text = '', options = ['', '', '', ''], correctIndex = 0) {
         layout: 'row',
         correctIndex,
         marks: 1,
+        chapter: '',
+        topic: '',
+        subtopic: '',
         options: options.map((value, index) => newOption(index, value)),
     };
 }
@@ -297,6 +318,19 @@ function getActiveSection() {
 
 function render() {
     normalize();
+    
+    // Save metadata input focus
+    const activeEl = document.activeElement;
+    let activeMetadataFocusedField = null;
+    if (activeEl && activeEl.classList.contains('metadata-input')) {
+        activeMetadataFocusedField = {
+            qid: activeEl.dataset.qid,
+            field: activeEl.dataset.field,
+            selectionStart: activeEl.selectionStart,
+            selectionEnd: activeEl.selectionEnd
+        };
+    }
+    
     renderPaperList();
     renderPaperSetup();
     renderSectionTabs();
@@ -304,6 +338,25 @@ function render() {
     renderTeacherPanel();
     renderPrintPaper();
     save();
+    
+    // Restore metadata input focus
+    if (activeMetadataFocusedField) {
+        const selector = `.metadata-input[data-qid="${activeMetadataFocusedField.qid}"][data-field="${activeMetadataFocusedField.field}"]`;
+        const inputToFocus = els.workbench.querySelector(selector);
+        if (inputToFocus) {
+            inputToFocus.focus();
+            try {
+                inputToFocus.setSelectionRange(
+                    activeMetadataFocusedField.selectionStart,
+                    activeMetadataFocusedField.selectionEnd
+                );
+            } catch (e) {
+                // Ignore selection range errors
+            }
+            showMetadataAutocomplete(inputToFocus);
+        }
+    }
+    
     renderMathSoon();
     renderMermaidSoon();
 
@@ -984,6 +1037,7 @@ function renderWorkbench() {
                 </div>
             </div>
             <div class="question-tools">
+                <button class="small-btn" id="importQuestionsBtn">Import Questions</button>
                 <button class="small-btn success" id="addQuestionBtn" style="display: none;">+ Question</button>
                 <button class="small-btn" id="reuseQuestionBtn"${UI_CONFIG.showReuse ? '' : ' style="display: none;"'}>Reuse</button>
                 <button class="small-btn" id="duplicateSectionBtn"${UI_CONFIG.showDuplicate ? '' : ' style="display: none;"'}>Duplicate</button>
@@ -1016,6 +1070,10 @@ function renderWorkbench() {
     if (addQBtn) {
         addQBtn.addEventListener('click', () => addQuestion(section.id));
     }
+    const importQuestionsBtn = document.getElementById('importQuestionsBtn');
+    if (importQuestionsBtn) {
+        importQuestionsBtn.addEventListener('click', openImportQuestionsModal);
+    }
     const bottomAddQBtn = document.getElementById('bottomAddQuestionBtn');
     if (bottomAddQBtn) {
         bottomAddQBtn.addEventListener('click', () => addQuestion(section.id));
@@ -1030,6 +1088,7 @@ function renderWorkbench() {
     document.getElementById('deleteSectionBtn').addEventListener('click', deleteSection);
 
     bindRichEditors();
+    bindMetadataFields();
 
     els.workbench.querySelectorAll('[data-correct]').forEach(input => {
         input.addEventListener('change', () => {
@@ -1129,6 +1188,23 @@ function questionCard(question, index) {
             </div>
             <div class="layout-row">
                 <span class="paste-hint">Answer: ${LABELS[question.correctIndex] || 'A'}</span>
+            </div>
+            <div class="question-metadata-row">
+                <div class="field" style="position: relative;">
+                    <label>Chapter</label>
+                    <input type="text" class="metadata-input chapter-input" data-qid="${question.id}" data-field="chapter" value="${esc(question.chapter || '')}" placeholder="e.g. Motion" autocomplete="off" />
+                    <div class="metadata-autocomplete-dropdown" hidden></div>
+                </div>
+                <div class="field" style="position: relative;">
+                    <label>Topic</label>
+                    <input type="text" class="metadata-input topic-input" data-qid="${question.id}" data-field="topic" value="${esc(question.topic || '')}" placeholder="e.g. Laws of Motion" autocomplete="off" />
+                    <div class="metadata-autocomplete-dropdown" hidden></div>
+                </div>
+                <div class="field" style="position: relative;">
+                    <label>Subtopic</label>
+                    <input type="text" class="metadata-input subtopic-input" data-qid="${question.id}" data-field="subtopic" value="${esc(question.subtopic || '')}" placeholder="e.g. Newton's First Law" autocomplete="off" />
+                    <div class="metadata-autocomplete-dropdown" hidden></div>
+                </div>
             </div>
         </article>
     `;
@@ -1230,6 +1306,149 @@ function bindRichEditors() {
     });
 }
 
+function getMetadataSuggestions(fieldName, question, paper) {
+    if (!paper) return [];
+    const questions = allQuestions(paper);
+    const values = questions.map(q => (q[fieldName] || '').trim()).filter(v => v.length > 0);
+    return Array.from(new Set(values));
+}
+
+let activeMetadataAutocompleteDropdown = null;
+
+function showMetadataAutocomplete(input) {
+    const qid = input.dataset.qid;
+    const fieldName = input.dataset.field;
+    const paper = getActivePaper();
+    const question = findQuestion(qid);
+    if (!question || !paper) return;
+
+    const suggestions = getMetadataSuggestions(fieldName, question, paper);
+    const query = input.value.trim().toLowerCase();
+    const filtered = query ? suggestions.filter(s => s.toLowerCase().startsWith(query)) : suggestions;
+
+    const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+    if (!dropdown) return;
+
+    if (filtered.length === 0) {
+        dropdown.setAttribute('hidden', 'true');
+        return;
+    }
+
+    dropdown.innerHTML = filtered.map((s, idx) => `
+        <div class="metadata-autocomplete-item" data-index="${idx}" data-val="${esc(s)}">${esc(s)}</div>
+    `).join('');
+    dropdown.removeAttribute('hidden');
+    dropdown.dataset.activeIndex = -1;
+    activeMetadataAutocompleteDropdown = dropdown;
+
+    dropdown.querySelectorAll('.metadata-autocomplete-item').forEach(item => {
+        item.addEventListener('mousedown', e => {
+            e.preventDefault();
+            selectSuggestion(input, item.dataset.val);
+        });
+    });
+}
+
+function selectSuggestion(input, val) {
+    input.value = val;
+    const qid = input.dataset.qid;
+    const fieldName = input.dataset.field;
+    const question = findQuestion(qid);
+    if (question) {
+        question[fieldName] = val;
+        save();
+    }
+    const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+    if (dropdown) {
+        dropdown.setAttribute('hidden', 'true');
+    }
+    input.blur();
+}
+
+function bindMetadataInputKeyboard(input) {
+    input.addEventListener('keydown', e => {
+        const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+        if (!dropdown || dropdown.hasAttribute('hidden')) return;
+
+        const items = dropdown.querySelectorAll('.metadata-autocomplete-item');
+        if (items.length === 0) return;
+
+        let activeIndex = parseInt(dropdown.dataset.activeIndex || '-1', 10);
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex++;
+            if (activeIndex >= items.length) activeIndex = 0;
+            updateActiveItem(items, activeIndex, dropdown);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex--;
+            if (activeIndex < 0) activeIndex = items.length - 1;
+            updateActiveItem(items, activeIndex, dropdown);
+        } else if (e.key === 'Enter') {
+            if (activeIndex >= 0 && activeIndex < items.length) {
+                e.preventDefault();
+                selectSuggestion(input, items[activeIndex].dataset.val);
+            } else {
+                input.blur();
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            dropdown.setAttribute('hidden', 'true');
+        }
+    });
+}
+
+function updateActiveItem(items, activeIndex, dropdown) {
+    dropdown.dataset.activeIndex = activeIndex;
+    items.forEach((item, idx) => {
+        if (idx === activeIndex) {
+            item.classList.add('active');
+            item.scrollIntoView({ block: 'nearest' });
+        } else {
+            item.classList.remove('active');
+        }
+    });
+}
+
+function bindMetadataFields() {
+    els.workbench.querySelectorAll('.metadata-input').forEach(input => {
+        input.addEventListener('focus', () => {
+            showMetadataAutocomplete(input);
+        });
+        
+        input.addEventListener('input', () => {
+            const qid = input.dataset.qid;
+            const fieldName = input.dataset.field;
+            const question = findQuestion(qid);
+            if (question) {
+                question[fieldName] = input.value;
+                save();
+            }
+            showMetadataAutocomplete(input);
+        });
+
+        input.addEventListener('blur', () => {
+            setTimeout(() => {
+                const dropdown = input.parentElement.querySelector('.metadata-autocomplete-dropdown');
+                if (dropdown) {
+                    dropdown.setAttribute('hidden', 'true');
+                }
+            }, 200);
+        });
+
+        bindMetadataInputKeyboard(input);
+    });
+}
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('.field')) {
+        document.querySelectorAll('.metadata-autocomplete-dropdown').forEach(dropdown => {
+            dropdown.setAttribute('hidden', 'true');
+        });
+    }
+});
+
 function updateFieldFromEditor(editorId, markdown) {
     const wrapper = document.querySelector(`[data-rich-editor][data-editor-id="${cssEscape(editorId)}"]`);
     if (!wrapper) return;
@@ -1316,6 +1535,7 @@ let savedSelectionStart = null;
 let savedSelectionEnd = null;
 let isEquationModalOpen = false;
 let equationActiveCategory = 'all';
+let customEquations = [];
 let equationFavorites = [];
 let equationRecent = [];
 
@@ -1382,6 +1602,16 @@ document.addEventListener('keyup', updateActiveSelection);
 document.addEventListener('mouseup', updateActiveSelection);
 document.addEventListener('focus', updateActiveSelection, true);
 try {
+    customEquations = JSON.parse(localStorage.getItem('school_mcq_paper_studio_custom_equations') || '[]');
+} catch (e) {
+    customEquations = [];
+}
+
+function saveCustomEquations() {
+    localStorage.setItem('school_mcq_paper_studio_custom_equations', JSON.stringify(customEquations));
+}
+
+try {
     equationFavorites = JSON.parse(localStorage.getItem('school_mcq_paper_studio_favorite_formulas') || '[]');
 } catch (e) {
     equationFavorites = [];
@@ -1400,6 +1630,8 @@ try {
 } catch (e) {
     equationRecent = [];
 }
+
+initEquationModal();
 
 function saveEquationFavorites() {
     localStorage.setItem('school_mcq_paper_studio_favorite_formulas', JSON.stringify(equationFavorites));
@@ -1473,7 +1705,7 @@ function initGlobalToolbar() {
     const equationBtn = document.getElementById('globalInsertEquation');
     if (equationBtn) {
         equationBtn.addEventListener('click', () => {
-            if (lastActiveEditorKey) insertEquation(lastActiveEditorKey);
+            insertEquation(lastActiveEditorKey);
         });
     }
     const tableBtn = document.getElementById('globalInsertTable');
@@ -1541,10 +1773,7 @@ function insertEquation(editorId, targetToken = null) {
         equationActiveCategory = 'all';
     }
     
-    const categoryBtns = document.querySelectorAll('#equationModal .category-btn');
-    categoryBtns.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.category === equationActiveCategory);
-    });
+    renderEquationCategories();
     
     // Toggle Mermaid vs Math views
     toggleEditorViewForCategory(equationActiveCategory);
@@ -1821,51 +2050,87 @@ function renderEquationList() {
         return;
     }
     
-    let list = [];
+    let builtinList = [];
+    let customList = [];
+    let directList = null;
+
     if (equationActiveCategory === 'recent') {
-        list = equationRecent;
+        directList = equationRecent;
     } else if (equationActiveCategory === 'favorites') {
-        list = FORMULA_LIBRARY.filter(f => equationFavorites.includes(f.id));
+        directList = [
+            ...FORMULA_LIBRARY.filter(f => equationFavorites.includes(f.id)),
+            ...customEquations.filter(f => equationFavorites.includes(f.id))
+        ];
     } else if (equationActiveCategory === 'all') {
-        list = FORMULA_LIBRARY;
+        builtinList = FORMULA_LIBRARY;
+        customList = customEquations;
     } else {
-        list = FORMULA_LIBRARY.filter(f => f.category === equationActiveCategory);
+        builtinList = FORMULA_LIBRARY.filter(f => f.category === equationActiveCategory);
+        customList = customEquations.filter(f => f.category === equationActiveCategory);
     }
 
     if (query) {
-        list = list.filter(f => 
+        const filterFn = f => 
             f.name.toLowerCase().includes(query) || 
             (f.description && f.description.toLowerCase().includes(query)) ||
             f.category.toLowerCase().includes(query) ||
-            f.latex.toLowerCase().includes(query)
-        );
+            f.latex.toLowerCase().includes(query);
+            
+        if (directList) {
+            directList = directList.filter(filterFn);
+        } else {
+            builtinList = builtinList.filter(filterFn);
+            customList = customList.filter(filterFn);
+        }
     }
 
-    listContainer.innerHTML = list.map(f => {
-        const isFav = equationFavorites.includes(f.id);
-        return `
-            <div class="equation-formula-card" data-id="${esc(f.id)}" data-latex="${esc(f.latex)}">
-                <button class="favorite-star-btn ${isFav ? 'active' : ''}" data-id="${esc(f.id)}" title="Favorite">★</button>
-                <div class="equation-formula-name">${esc(f.name)}</div>
-                <div class="equation-formula-render" id="card-render-${esc(f.id)}">${esc(f.latex)}</div>
-            </div>
-        `;
-    }).join('');
-
-    list.forEach(f => {
-        const el = document.getElementById(`card-render-${f.id}`);
-        if (el && window.katex) {
-            try {
-                window.katex.render(f.latex, el, { throwOnError: false });
-            } catch (err) {
-                // fall back to raw text
+    let html = '';
+    if (directList) {
+        if (directList.length === 0) {
+            html = `<div class="empty-state" style="padding: 32px 16px; text-align: center; color: var(--muted); grid-column: 1 / -1;">No equations found.</div>`;
+        } else {
+            html = directList.map(f => renderEquationCard(f)).join('');
+        }
+    } else {
+        if (builtinList.length > 0) {
+            html += `<div class="formula-section-header">My Equations</div>`;
+            html += customList.length > 0 ? customList.map(f => renderEquationCard(f)).join('') : `<div class="empty-state" style="padding: 16px; text-align: center; color: var(--muted); grid-column: 1 / -1; font-size: 13px;">No saved equations in this category yet.</div>`;
+            html += `<div class="formula-section-header">Built-in Formulas</div>`;
+            html += builtinList.map(f => renderEquationCard(f)).join('');
+        } else {
+            html += `<div class="formula-section-header">My Equations</div>`;
+            if (customList.length > 0) {
+                html += customList.map(f => renderEquationCard(f)).join('');
+            } else {
+                html += `<div class="empty-state" style="padding: 16px; text-align: center; color: var(--muted); grid-column: 1 / -1; font-size: 13px;">No saved equations in this category yet.</div>`;
             }
         }
-    });
+    }
+    listContainer.innerHTML = html;
+
+    const renderKaTeXForList = items => {
+        items.forEach(f => {
+            const el = document.getElementById(`card-render-${f.id}`);
+            if (el && window.katex) {
+                try {
+                    window.katex.render(f.latex, el, { throwOnError: false });
+                } catch (err) {
+                    // fall back
+                }
+            }
+        });
+    };
+    
+    if (directList) {
+        renderKaTeXForList(directList);
+    } else {
+        renderKaTeXForList(builtinList);
+        renderKaTeXForList(customList);
+    }
 
     listContainer.querySelectorAll('.equation-formula-card').forEach(card => {
         card.addEventListener('click', e => {
-            if (e.target.classList.contains('favorite-star-btn')) return;
+            if (e.target.closest('.favorite-star-btn') || e.target.closest('.card-action-btn')) return;
             e.stopPropagation();
             const latex = card.dataset.latex;
             const editor = document.getElementById('equationLatexEditor');
@@ -1898,6 +2163,326 @@ function renderEquationList() {
                 renderEquationList();
             }
         });
+    });
+
+    // Delete custom equation
+    listContainer.querySelectorAll('.del-eq-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            const eq = customEquations.find(item => item.id === id);
+            if (eq && confirm(`Delete saved equation "${eq.name}"?`)) {
+                customEquations = customEquations.filter(item => item.id !== id);
+                equationFavorites = equationFavorites.filter(fid => fid !== id);
+                saveCustomEquations();
+                saveEquationFavorites();
+                renderEquationCategories();
+                renderEquationList();
+                toast('Equation deleted');
+            }
+        });
+    });
+
+    // Duplicate custom equation
+    listContainer.querySelectorAll('.dup-eq-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            const eq = customEquations.find(item => item.id === id);
+            if (eq) {
+                const copy = {
+                    ...eq,
+                    id: 'custom_eq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    name: `${eq.name} Copy`,
+                    createdAt: new Date().toISOString(),
+                    lastModified: new Date().toISOString()
+                };
+                customEquations.push(copy);
+                saveCustomEquations();
+                renderEquationCategories();
+                renderEquationList();
+                toast('Equation duplicated');
+            }
+        });
+    });
+
+    // Edit/Move custom equation
+    listContainer.querySelectorAll('.edit-eq-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            const eq = customEquations.find(item => item.id === id);
+            if (eq) {
+                openSaveEquationModal(eq);
+            }
+        });
+    });
+}
+
+function renderEquationCard(f) {
+    const isFav = equationFavorites.includes(f.id);
+    const isCustom = f.isCustom || false;
+    
+    return `
+        <div class="equation-formula-card ${isCustom ? 'custom-eq' : ''}" data-id="${esc(f.id)}" data-latex="${esc(f.latex)}">
+            <button class="favorite-star-btn ${isFav ? 'active' : ''}" data-id="${esc(f.id)}" title="Favorite">★</button>
+            <div class="equation-formula-name" style="padding-right: 20px;">${esc(f.name)}</div>
+            <div class="equation-formula-render" id="card-render-${esc(f.id)}" style="margin-top: 8px; font-size: 13px; color: var(--text); min-height: 24px; display: flex; align-items: center; overflow-x: auto; white-space: nowrap; max-width: 100%; scrollbar-width: none;">${esc(f.latex)}</div>
+            ${isCustom ? `
+                <div class="equation-card-actions" style="margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px dashed var(--line); padding-top: 8px;">
+                    <button class="card-action-btn edit-eq-btn" data-id="${esc(f.id)}" title="Edit/Move">✏️</button>
+                    <button class="card-action-btn dup-eq-btn" data-id="${esc(f.id)}" title="Duplicate">📋</button>
+                    <button class="card-action-btn del-eq-btn" data-id="${esc(f.id)}" title="Delete">🗑️</button>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+function renderEquationCategories() {
+    const sidebar = document.getElementById('equationCategoriesList');
+    if (!sidebar) return;
+
+    const customCategories = Array.from(new Set(customEquations.map(eq => eq.category).filter(cat => cat && !['Mathematics', 'Physics', 'Chemistry'].includes(cat)))).sort();
+
+    let html = `
+        <button class="category-btn ${equationActiveCategory === 'all' ? 'active' : ''}" data-category="all">All Formulas</button>
+        <button class="category-btn ${equationActiveCategory === 'Mathematics' ? 'active' : ''}" data-category="Mathematics">Mathematics</button>
+        <button class="category-btn ${equationActiveCategory === 'Physics' ? 'active' : ''}\" data-category="Physics">Physics</button>
+        <button class="category-btn ${equationActiveCategory === 'Chemistry' ? 'active' : ''}" data-category="Chemistry">Chemistry</button>
+    `;
+
+    customCategories.forEach(cat => {
+        const isActive = equationActiveCategory === cat;
+        html += `
+            <div class="category-btn-row">
+                <button class="category-btn ${isActive ? 'active' : ''}" data-category="${esc(cat)}" style="flex-grow: 1; text-align: left;">📄 ${esc(cat)}</button>
+                <div class="category-actions" style="display: flex; gap: 4px; padding-right: 8px;">
+                    <button class="cat-action-btn rename-cat-btn" data-category="${esc(cat)}" title="Rename Category">✏️</button>
+                    <button class="cat-action-btn delete-cat-btn" data-category="${esc(cat)}" title="Delete Category">🗑️</button>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `
+        <button class="category-btn ${equationActiveCategory === 'recent' ? 'active' : ''}" data-category="recent">Recently Used</button>
+        <button class="category-btn ${equationActiveCategory === 'favorites' ? 'active' : ''}" data-category="favorites">Favorites</button>
+        <div class="sidebar-section-title" style="margin-top: 10px; padding: 0 12px; font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Diagrams</div>
+        <button class="category-btn ${equationActiveCategory === 'Mermaid' ? 'active' : ''}" data-category="Mermaid">Mermaid</button>
+    `;
+
+    sidebar.innerHTML = html;
+
+    // Category click listeners
+    sidebar.querySelectorAll('.category-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            equationActiveCategory = btn.dataset.category;
+            renderEquationCategories();
+            toggleEditorViewForCategory(equationActiveCategory);
+            renderEquationList();
+            
+            const mermaidCodeEditor = document.getElementById('mermaidCodeEditor');
+            const mermaidLivePreview = document.getElementById('mermaidLivePreview');
+            if (equationActiveCategory === 'Mermaid') {
+                if (mermaidCodeEditor && mermaidLivePreview) {
+                    if (!mermaidCodeEditor.value) {
+                        mermaidCodeEditor.value = `pie title Pets owned by staff\n    "Dogs" : 386\n    "Cats" : 85`;
+                    }
+                    validateAndRenderMermaid(mermaidCodeEditor.value, mermaidLivePreview);
+                }
+            }
+        });
+    });
+
+    // Rename Category listener
+    sidebar.querySelectorAll('.rename-cat-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const oldCat = btn.dataset.category;
+            const newCat = prompt(`Rename Category "${oldCat}" to:`, oldCat);
+            if (newCat && newCat.trim() && newCat.trim() !== oldCat) {
+                const trimmedNewCat = newCat.trim();
+                customEquations.forEach(eq => {
+                    if (eq.category === oldCat) {
+                        eq.category = trimmedNewCat;
+                        eq.lastModified = new Date().toISOString();
+                    }
+                });
+                saveCustomEquations();
+                if (equationActiveCategory === oldCat) {
+                    equationActiveCategory = trimmedNewCat;
+                }
+                renderEquationCategories();
+                renderEquationList();
+                toast(`Category renamed to "${trimmedNewCat}"`);
+            }
+        });
+    });
+
+    // Delete Category listener
+    sidebar.querySelectorAll('.delete-cat-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const cat = btn.dataset.category;
+            if (confirm(`Delete category "${cat}"? Equations in this category will be moved to Mathematics.`)) {
+                customEquations.forEach(eq => {
+                    if (eq.category === cat) {
+                        eq.category = 'Mathematics';
+                        eq.lastModified = new Date().toISOString();
+                    }
+                });
+                saveCustomEquations();
+                if (equationActiveCategory === cat) {
+                    equationActiveCategory = 'Mathematics';
+                }
+                renderEquationCategories();
+                renderEquationList();
+                toast(`Category deleted. Equations moved to Mathematics.`);
+            }
+        });
+    });
+}
+
+let editingEquationId = null;
+
+function openSaveEquationModal(editEq = null) {
+    const modal = document.getElementById('saveEquationModal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('saveEquationModalTitle');
+    const nameInput = document.getElementById('saveEquationName');
+    const categorySelect = document.getElementById('saveEquationCategory');
+    const customCategoryField = document.getElementById('customCategoryField');
+    const customCategoryInput = document.getElementById('saveEquationCustomCategory');
+    const tagsInput = document.getElementById('saveEquationTags');
+
+    if (editEq) {
+        editingEquationId = editEq.id;
+        titleEl.textContent = 'Edit Equation';
+        nameInput.value = editEq.name;
+        
+        const isBuiltinCat = ['Mathematics', 'Physics', 'Chemistry'].includes(editEq.category);
+        if (isBuiltinCat) {
+            categorySelect.value = editEq.category;
+            customCategoryField.style.display = 'none';
+            customCategoryInput.value = '';
+        } else {
+            categorySelect.value = 'custom';
+            customCategoryField.style.display = 'block';
+            customCategoryInput.value = editEq.category;
+        }
+        tagsInput.value = (editEq.tags || []).join(', ');
+    } else {
+        editingEquationId = null;
+        titleEl.textContent = 'Save Equation';
+        nameInput.value = '';
+        categorySelect.value = 'Mathematics';
+        customCategoryField.style.display = 'none';
+        customCategoryInput.value = '';
+        tagsInput.value = '';
+    }
+
+    modal.removeAttribute('hidden');
+}
+
+function initSaveEquationModal() {
+    const saveEquationBtn = document.getElementById('saveEquationBtn');
+    const modal = document.getElementById('saveEquationModal');
+    const closeBtn = document.getElementById('closeSaveEquationModalBtn');
+    const cancelBtn = document.getElementById('cancelSaveEquationBtn');
+    const confirmBtn = document.getElementById('confirmSaveEquationBtn');
+    const categorySelect = document.getElementById('saveEquationCategory');
+    const customCategoryField = document.getElementById('customCategoryField');
+    const nameInput = document.getElementById('saveEquationName');
+    const customCategoryInput = document.getElementById('saveEquationCustomCategory');
+    const tagsInput = document.getElementById('saveEquationTags');
+
+    if (!saveEquationBtn || !modal || !closeBtn || !cancelBtn || !confirmBtn || !categorySelect || !customCategoryField || !nameInput || !customCategoryInput || !tagsInput) return;
+
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
+        editingEquationId = null;
+    };
+
+    saveEquationBtn.addEventListener('click', () => openSaveEquationModal());
+
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+
+    categorySelect.addEventListener('change', () => {
+        if (categorySelect.value === 'custom') {
+            customCategoryField.style.display = 'block';
+            customCategoryInput.focus();
+        } else {
+            customCategoryField.style.display = 'none';
+        }
+    });
+
+    confirmBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        if (!name) {
+            alert('Equation Name is required.');
+            nameInput.focus();
+            return;
+        }
+
+        let category = categorySelect.value;
+        if (category === 'custom') {
+            category = customCategoryInput.value.trim();
+            if (!category) {
+                alert('Custom Category Name is required.');
+                customCategoryInput.focus();
+                return;
+            }
+        }
+
+        const tags = tagsInput.value.split(',')
+            .map(t => t.trim())
+            .filter(t => t.length > 0);
+
+        // Get the current LaTeX code from the editor
+        const latexEditor = document.getElementById('equationLatexEditor');
+        const latex = latexEditor ? latexEditor.value : '';
+
+        if (editingEquationId) {
+            // Update mode
+            const idx = customEquations.findIndex(item => item.id === editingEquationId);
+            const eq = idx >= 0 ? customEquations[idx] : null;
+            if (eq) {
+                eq.name = name;
+                eq.category = category;
+                eq.tags = tags;
+                eq.lastModified = new Date().toISOString();
+                eq.latex = latex;
+                customEquations.splice(idx, 1);
+                customEquations.unshift(eq);
+            }
+            toast('Equation updated');
+        } else {
+            // Create mode
+            if (!latex.trim()) {
+                alert('LaTeX content cannot be empty.');
+                return;
+            }
+            const newEq = {
+                id: 'custom_eq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                name: name,
+                latex: latex,
+                category: category,
+                createdAt: new Date().toISOString(),
+                lastModified: new Date().toISOString(),
+                tags: tags,
+                isCustom: true
+            };
+            customEquations.unshift(newEq);
+            toast('Equation saved');
+        }
+
+        saveCustomEquations();
+        hideModal();
+        renderEquationCategories();
+        renderEquationList();
     });
 }
 
@@ -2508,7 +3093,6 @@ function initEquationModal() {
     const insertBtn = document.getElementById('insertEquationBtn');
     const searchInput = document.getElementById('equationSearchInput');
     const latexEditor = document.getElementById('equationLatexEditor');
-    const categoryBtns = modal.querySelectorAll('.category-btn');
     const mermaidCodeEditor = document.getElementById('mermaidCodeEditor');
     const mermaidLivePreview = document.getElementById('mermaidLivePreview');
 
@@ -2572,26 +3156,7 @@ function initEquationModal() {
         mousedownTarget = null;
     });
 
-    categoryBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            categoryBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            equationActiveCategory = btn.dataset.category;
-            toggleEditorViewForCategory(equationActiveCategory);
-            renderEquationList();
-            
-            if (equationActiveCategory === 'Mermaid') {
-                if (mermaidCodeEditor && mermaidLivePreview) {
-                    if (!mermaidCodeEditor.value) {
-                        mermaidCodeEditor.value = `pie title Pets owned by staff
-    "Dogs" : 386
-    "Cats" : 85`;
-                    }
-                    validateAndRenderMermaid(mermaidCodeEditor.value, mermaidLivePreview);
-                }
-            }
-        });
-    });
+    renderEquationCategories();
 
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -2733,7 +3298,7 @@ function initEquationModal() {
                 return;
             }
 
-            const latex = latexEditor.value.trim();
+            const latex = (latexEditor?.value || activeMathfield?.value || '').trim();
             if (!latex) return;
             
             let formulaObj;
@@ -2791,6 +3356,7 @@ function initEquationModal() {
         });
     }
 }
+
 
 function insertHtmlIntoVisualEditor(editor, html, targetRange = null) {
     const template = document.createElement('template');
@@ -3258,7 +3824,14 @@ function renderPrintPaper() {
                 <div class="print-question-card">
                     <div class="print-question-header">
                         <span class="print-q-number">${index + 1}.</span>
-                        <div class="print-q-text">${markdownToVisualHtml(question.text)}</div>
+                        <div class="print-q-text">
+                            ${markdownToVisualHtml(question.text)}
+                            ${(question.chapter || question.topic || question.subtopic) ? `
+                                <div class="print-question-metadata" style="font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic;">
+                                    [Chapter: ${esc(question.chapter || '-')} | Topic: ${esc(question.topic || '-')} | Subtopic: ${esc(question.subtopic || '-')}]
+                                </div>
+                            ` : ''}
+                        </div>
                     </div>
                     <div class="print-options-grid print-${question.layout || 'row'}">
                         ${optionsHtml}
@@ -3396,6 +3969,10 @@ function initSectionModal() {
     
     const hideModal = () => {
         modal.setAttribute('hidden', 'true');
+        if (importPromptCopyResetTimer) {
+            window.clearTimeout(importPromptCopyResetTimer);
+            importPromptCopyResetTimer = null;
+        }
     };
     
     closeBtn.addEventListener('click', hideModal);
@@ -3596,6 +4173,842 @@ function initAddQuestionsModal() {
     };
     if (nameInput) nameInput.addEventListener('keydown', handleEnter);
     if (countInput) countInput.addEventListener('keydown', handleEnter);
+}
+
+function openImportQuestionsModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('importQuestionsModal');
+    const fileInput = document.getElementById('importQuestionsFileInput');
+    const csvInput = document.getElementById('importQuestionsCsvInput');
+    const previewCount = document.querySelector('#importQuestionsModal .import-preview-count');
+    const previewEmpty = document.querySelector('#importQuestionsModal .import-preview-empty');
+    const previewList = document.getElementById('importQuestionsPreviewList');
+    const validationMessage = document.getElementById('importQuestionsValidationMessage');
+    const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+    const promptText = document.getElementById('importQuestionsPromptText');
+    const promptCard = document.querySelector('#importQuestionsModal .import-prompt-card');
+    const promptToggleBtn = document.getElementById('importPromptToggleBtn');
+    const promptPanel = document.getElementById('importPromptPanel');
+    const promptSubject = document.getElementById('importPromptSubject');
+    const promptClass = document.getElementById('importPromptClass');
+    const promptQuestionCount = document.getElementById('importPromptQuestionCount');
+    const promptDifficulty = document.getElementById('importPromptDifficulty');
+    const promptTopic = document.getElementById('importPromptTopic');
+    const expandPromptBtn = document.getElementById('expandImportQuestionsPromptBtn');
+    if (!modal) return;
+
+    if (fileInput) fileInput.value = '';
+    if (csvInput) csvInput.value = '';
+    if (previewCount) previewCount.textContent = 'No CSV loaded';
+    if (previewEmpty) {
+        previewEmpty.textContent = 'Preview, validation, and import mapping will be added in the next stage.';
+    }
+    if (previewList) {
+        previewList.hidden = true;
+        previewList.innerHTML = '';
+    }
+    if (validationMessage) {
+        validationMessage.hidden = true;
+        validationMessage.textContent = '';
+    }
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (promptCard) promptCard.classList.remove('is-open');
+    if (promptToggleBtn) {
+        promptToggleBtn.setAttribute('aria-expanded', 'false');
+        const toggleText = promptToggleBtn.querySelector('.import-prompt-toggle-text');
+        if (toggleText) toggleText.textContent = 'Show AI Prompt';
+    }
+    if (promptPanel) promptPanel.hidden = true;
+
+    if (promptSubject) promptSubject.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.subject;
+    if (promptClass) promptClass.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.className;
+    if (promptQuestionCount) promptQuestionCount.value = String(IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.questionCount);
+    if (promptDifficulty) promptDifficulty.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.difficulty;
+    if (promptTopic) promptTopic.value = IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.topic;
+    if (promptText) promptText.textContent = buildImportQuestionsPrompt(getImportPromptValues());
+    if (expandPromptBtn) {
+        expandPromptBtn.textContent = 'Expand Prompt';
+        expandPromptBtn.setAttribute('aria-pressed', 'false');
+    }
+    modal.classList.remove('import-prompt-expanded');
+
+    importQuestionsPreviewState = null;
+
+    modal.removeAttribute('hidden');
+    csvInput?.focus();
+}
+
+function initImportQuestionsModal() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const modal = document.getElementById('importQuestionsModal');
+    const closeBtn = document.getElementById('closeImportQuestionsModalBtn');
+    const cancelBtn = document.getElementById('cancelImportQuestionsBtn');
+    const fileInput = document.getElementById('importQuestionsFileInput');
+    const csvInput = document.getElementById('importQuestionsCsvInput');
+    const previewBtn = document.getElementById('previewImportQuestionsBtn');
+    const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+    const copyPromptBtn = document.getElementById('copyImportQuestionsPromptBtn');
+    const expandPromptBtn = document.getElementById('expandImportQuestionsPromptBtn');
+    const openChatGPTBtn = document.getElementById('openChatGPTBtn');
+    const openGeminiBtn = document.getElementById('openGeminiBtn');
+    const promptToggleBtn = document.getElementById('importPromptToggleBtn');
+    const promptPanel = document.getElementById('importPromptPanel');
+    const promptCard = document.querySelector('#importQuestionsModal .import-prompt-card');
+    const promptText = document.getElementById('importQuestionsPromptText');
+    const promptSubject = document.getElementById('importPromptSubject');
+    const promptClass = document.getElementById('importPromptClass');
+    const promptQuestionCount = document.getElementById('importPromptQuestionCount');
+    const promptDifficulty = document.getElementById('importPromptDifficulty');
+    const promptTopic = document.getElementById('importPromptTopic');
+
+    if (!modal || !closeBtn || !cancelBtn || !fileInput || !csvInput || !previewBtn || !confirmBtn || !copyPromptBtn || !expandPromptBtn || !promptText || !promptToggleBtn || !promptPanel || !promptCard || !promptSubject || !promptClass || !promptQuestionCount || !promptDifficulty || !promptTopic) return;
+
+    const hideModal = () => {
+        modal.setAttribute('hidden', 'true');
+        modal.classList.remove('import-prompt-expanded');
+        expandPromptBtn.textContent = 'Expand Prompt';
+        expandPromptBtn.setAttribute('aria-pressed', 'false');
+        modal._importMouseDownTarget = null;
+        promptPanel.hidden = true;
+        promptCard.classList.remove('is-open');
+        promptToggleBtn.setAttribute('aria-expanded', 'false');
+        const toggleText = promptToggleBtn.querySelector('.import-prompt-toggle-text');
+        if (toggleText) toggleText.textContent = 'Show AI Prompt';
+    };
+
+    const syncPreviewPrompt = () => {
+        const previewCount = document.querySelector('#importQuestionsModal .import-preview-count');
+        const previewEmpty = document.querySelector('#importQuestionsModal .import-preview-empty');
+        const previewList = document.getElementById('importQuestionsPreviewList');
+        const validationMessage = document.getElementById('importQuestionsValidationMessage');
+        const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+
+        if (previewCount) previewCount.textContent = 'Ready to preview';
+        if (previewEmpty) previewEmpty.textContent = 'Click Preview Questions to validate the pasted or uploaded CSV.';
+        if (previewList) {
+            previewList.hidden = true;
+            previewList.innerHTML = '';
+        }
+        if (validationMessage) {
+            validationMessage.hidden = true;
+            validationMessage.textContent = '';
+        }
+        if (confirmBtn) confirmBtn.disabled = true;
+        importQuestionsPreviewState = null;
+    };
+
+    const syncImportPrompt = () => {
+        const prompt = buildImportQuestionsPrompt(getImportPromptValues());
+        promptText.textContent = prompt;
+    };
+
+    const togglePromptPanel = () => {
+        const isOpen = !promptPanel.hidden;
+        promptPanel.hidden = isOpen;
+        promptCard.classList.toggle('is-open', !isOpen);
+        promptToggleBtn.setAttribute('aria-expanded', String(!isOpen));
+        const toggleText = promptToggleBtn.querySelector('.import-prompt-toggle-text');
+        if (toggleText) toggleText.textContent = isOpen ? 'Show AI Prompt' : 'Hide AI Prompt';
+        
+        // Reset scroll position of the entire modal body when collapsing the panel
+        if (isOpen) {
+            const modalBody = document.querySelector('.import-questions-modal-body');
+            if (modalBody) {
+                modalBody.scrollTop = 0;
+            }
+        }
+    };
+
+    const togglePromptExpansion = () => {
+        const isExpanded = modal.classList.toggle('import-prompt-expanded');
+        expandPromptBtn.textContent = isExpanded ? 'Collapse Prompt' : 'Expand Prompt';
+        expandPromptBtn.setAttribute('aria-pressed', String(isExpanded));
+    };
+
+    const copyPromptToClipboard = async ({ openUrl } = {}) => {
+        const prompt = promptText.textContent || buildImportQuestionsPrompt(getImportPromptValues());
+        const doCopy = async () => {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(prompt);
+                return true;
+            }
+            const helper = document.createElement('textarea');
+            helper.value = prompt;
+            helper.setAttribute('readonly', 'readonly');
+            helper.style.position = 'fixed';
+            helper.style.left = '-9999px';
+            helper.style.top = '0';
+            document.body.appendChild(helper);
+            helper.select();
+            const success = document.execCommand('copy');
+            document.body.removeChild(helper);
+            return success;
+        };
+
+        try {
+            await doCopy();
+            toast('Prompt copied!');
+            copyPromptBtn.textContent = 'Copied ✓';
+            copyPromptBtn.disabled = true;
+            if (importPromptCopyResetTimer) window.clearTimeout(importPromptCopyResetTimer);
+            importPromptCopyResetTimer = window.setTimeout(() => {
+                copyPromptBtn.textContent = 'Copy Prompt';
+                copyPromptBtn.disabled = false;
+            }, 2000);
+            if (openUrl) window.open(openUrl, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            toast('Copy the prompt from the box');
+            promptText.focus();
+            if (typeof window.getSelection === 'function') {
+                const range = document.createRange();
+                range.selectNodeContents(promptText);
+                const selection = window.getSelection();
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+            }
+            if (openUrl) window.open(openUrl, '_blank', 'noopener,noreferrer');
+        }
+    };
+
+    const loadCsvFile = async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        csvInput.value = text;
+        syncPreviewPrompt();
+    };
+
+    const previewCsv = () => {
+        const result = parseImportQuestionsCsv(csvInput.value);
+        importQuestionsPreviewState = result;
+        renderImportQuestionsPreview(result);
+    };
+
+    const importQuestions = () => {
+        if (!importQuestionsPreviewState) {
+            renderImportQuestionsPreview(parseImportQuestionsCsv(csvInput.value));
+            return;
+        }
+
+        const result = importQuestionsPreviewState;
+        if (result.errors.length || result.rowErrors.length || !result.totalValidRows) {
+            renderImportQuestionsPreview(result);
+            return;
+        }
+
+        const paper = getActivePaper();
+        if (!paper) return;
+
+        const sectionLookup = new Map();
+        paper.sections.forEach(section => {
+            sectionLookup.set(normalizeImportCsvHeader(section.name), section);
+        });
+
+        const touchedSections = [];
+        let importedCount = 0;
+
+        result.validRows.forEach(row => {
+            const normalizedSectionName = normalizeImportCsvHeader(row.section);
+            let section = sectionLookup.get(normalizedSectionName);
+            if (!section) {
+                section = {
+                    id: uid('section'),
+                    name: row.section.trim(),
+                    layout: paper.layout || 'row',
+                    questions: [],
+                };
+                paper.sections.push(section);
+                sectionLookup.set(normalizedSectionName, section);
+                touchedSections.push(section);
+            }
+
+            const correctIndex = LABELS.indexOf(row.correctOption);
+            const question = newQuestion(row.question, row.options, correctIndex >= 0 ? correctIndex : 0);
+            question.chapter = row.chapter || '';
+            question.topic = row.topic || '';
+            question.subtopic = row.subtopic || '';
+            question.layout = section.layout || paper.layout || 'row';
+            section.questions.push(question);
+            importedCount += 1;
+        });
+
+        state.activePaperId = paper.id;
+        state.activeSectionId = (touchedSections[0] || sectionLookup.get(normalizeImportCsvHeader(result.validRows[0].section)) || paper.sections[0])?.id || null;
+        render();
+        save();
+
+        const modalCount = document.querySelector('#importQuestionsModal .import-preview-count');
+        const validationMessage = document.getElementById('importQuestionsValidationMessage');
+        if (validationMessage) {
+            validationMessage.classList.remove('success');
+            validationMessage.hidden = true;
+            validationMessage.textContent = '';
+        }
+        if (modalCount) modalCount.textContent = `${importedCount} question${importedCount === 1 ? '' : 's'} imported successfully`;
+        hideModal();
+        toast(`${importedCount} question${importedCount === 1 ? '' : 's'} imported successfully.`);
+        importQuestionsPreviewState = null;
+    };
+
+    closeBtn.addEventListener('click', hideModal);
+    cancelBtn.addEventListener('click', hideModal);
+    fileInput.addEventListener('change', () => {
+        loadCsvFile().catch(() => {
+            const validationMessage = document.getElementById('importQuestionsValidationMessage');
+            if (validationMessage) {
+                validationMessage.textContent = 'Unable to read the selected CSV file.';
+                validationMessage.hidden = false;
+            }
+        });
+    });
+    csvInput.addEventListener('input', syncPreviewPrompt);
+    previewBtn.addEventListener('click', previewCsv);
+    confirmBtn.addEventListener('click', importQuestions);
+    copyPromptBtn.addEventListener('click', () => copyPromptToClipboard());
+    expandPromptBtn.addEventListener('click', togglePromptExpansion);
+    openChatGPTBtn.addEventListener('click', () => copyPromptToClipboard({ openUrl: IMPORT_QUESTIONS_PROMPT_OPEN_URLS.chatgpt }));
+    openGeminiBtn.addEventListener('click', () => copyPromptToClipboard({ openUrl: IMPORT_QUESTIONS_PROMPT_OPEN_URLS.gemini }));
+    promptToggleBtn.addEventListener('click', togglePromptPanel);
+    [promptSubject, promptClass, promptQuestionCount, promptDifficulty, promptTopic].forEach(input => {
+        input.addEventListener('input', syncImportPrompt);
+        input.addEventListener('change', syncImportPrompt);
+    });
+
+    modal.addEventListener('mousedown', e => {
+        modal._importMouseDownTarget = e.target;
+    });
+
+    modal.addEventListener('click', e => {
+        const isContent = e.target.closest('.import-questions-modal-content');
+        if (e.target === modal && modal._importMouseDownTarget === modal && !isContent) {
+            hideModal();
+        }
+    });
+}
+
+function normalizeImportCsvHeader(header) {
+    return String(header || '').trim().toLowerCase();
+}
+
+function getImportPromptValues() {
+    const subject = document.getElementById('importPromptSubject')?.value.trim() || IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.subject;
+    const className = document.getElementById('importPromptClass')?.value.trim() || IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.className;
+    const questionCountValue = parseInt(document.getElementById('importPromptQuestionCount')?.value, 10);
+    const questionCount = Number.isFinite(questionCountValue) && questionCountValue > 0 ? questionCountValue : IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.questionCount;
+    const difficulty = document.getElementById('importPromptDifficulty')?.value || IMPORT_QUESTIONS_DEFAULT_PROMPT_SETTINGS.difficulty;
+    const topic = document.getElementById('importPromptTopic')?.value.trim() || '';
+
+    return { subject, className, questionCount, difficulty, topic };
+}
+
+function buildImportQuestionsPrompt(values) {
+    const topicLine = values.topic ? `Topic/Chapter: ${values.topic}\n` : '';
+    return `Create a multiple-choice question paper.
+
+Subject: ${values.subject}
+Class/Grade: ${values.className}
+${topicLine}Number of Questions: ${values.questionCount}
+Difficulty: ${values.difficulty}
+
+Generate exactly ${values.questionCount} multiple-choice questions.
+
+Return ONLY valid CSV.
+
+Use exactly these columns and this exact order:
+
+"section","question","option1","option2","option3","option4","correct_option"
+
+Example:
+
+"section","question","option1","option2","option3","option4","correct_option"
+"Mathematics","Degree measure of a circle is ___ degrees","90","180","270","360","D"
+"Mathematics","If a line intersects a circle at two distinct points, then it is called","Secant","Tangent","Median","Altitude","A"
+
+Rules:
+1. Every question must have exactly 4 answer options.
+2. correct_option must contain only A, B, C, or D.
+3. A = option1, B = option2, C = option3, D = option4.
+4. Put the subject or appropriate section name in the section column.
+5. Do not include numbering outside the CSV.
+6. Do not include explanations or answers outside the CSV.
+7. Properly escape commas and quotation marks according to CSV rules.
+8. Do not wrap the response in Markdown code fences.
+9. Output only the CSV header followed by the question rows.
+10. Make the questions appropriate for the requested class/grade, subject, topic, and difficulty.
+11. Keep the wording clear and suitable for school students.
+12. Avoid duplicate or near-duplicate questions.
+13. Ensure each question has a single unambiguous correct answer.
+14. Prefer practical, textbook-style wording over trick questions.
+15. Vary the wording and structure of the questions where possible.
+16. Keep all section names consistent for the same topic.
+17. Do not add any extra commentary before or after the CSV.
+18. If a topic is provided, keep most questions focused on that topic.
+19. If topic is blank, generate a balanced set of questions for the subject.
+20. Double-check that the CSV rows match the header exactly.`;
+}
+
+function getUploadedFilename() {
+    if (typeof document === 'undefined') return null;
+    const fileInput = document.getElementById('importQuestionsFileInput');
+    const file = fileInput?.files?.[0];
+    if (file) {
+        return file.name.replace(/\.[^/.]+$/, "");
+    }
+    return null;
+}
+
+function parseImportQuestionsPlainText(source, defaultSection) {
+    const lines = String(source ?? '').split(/\r\n|\r|\n/);
+    const parsedQuestions = [];
+    const errors = [];
+    
+    let currentSection = defaultSection || 'General';
+    let currentQuestionText = '';
+    let currentOptions = [];
+    let currentAnswer = '';
+    let currentQuestionNumber = null;
+    
+    const optionRegex = /^\s*[*_\-\u2022\u25CF]*\s*[*_]*(?:([a-d1-4])[\).]|(•))\s*(.*)/i;
+    const answerRegex = /^\s*[*_]*(?:correct\s+answer|answer|ans|correct)\s*[*_]*\s*[:\.-]?\s*[*_]*\s*([a-d1-4])\b/i;
+    const questionRegex = /^\s*[*_#\-\u2022\u25CF]*\s*(?:q(?:uestion)?\s*\d+\s*[:\.]?|\d+[\)\.:]|\#+\s*q(?:uestion)?\s*\d+)/i;
+    
+    function stripMarkdown(text) {
+        let t = text.trim();
+        t = t.replace(/^#+\s*/, '');
+        
+        let changed = true;
+        while (changed) {
+            changed = false;
+            if (t.startsWith('**') && t.endsWith('**')) {
+                t = t.slice(2, -2).trim();
+                changed = true;
+            } else if (t.startsWith('__') && t.endsWith('__')) {
+                t = t.slice(2, -2).trim();
+                changed = true;
+            } else if (t.startsWith('*') && t.endsWith('*')) {
+                t = t.slice(1, -1).trim();
+                changed = true;
+            } else if (t.startsWith('_') && t.endsWith('_')) {
+                t = t.slice(1, -1).trim();
+                changed = true;
+            }
+        }
+        return t;
+    }
+    
+    function cleanQuotes(text) {
+        let t = text.trim();
+        if (t.startsWith('"') && t.endsWith('"')) {
+            t = t.substring(1, t.length - 1).trim();
+        } else if (t.startsWith("'") && t.endsWith("'")) {
+            t = t.substring(1, t.length - 1).trim();
+        }
+        return t;
+    }
+    
+    function isQuestionLine(index) {
+        const line = lines[index].trim();
+        if (!line) return false;
+        if (questionRegex.test(line)) {
+            return true;
+        }
+        for (let i = index + 1; i < lines.length; i++) {
+            const nextLine = lines[i].trim();
+            if (!nextLine) continue;
+            if (questionRegex.test(nextLine) || answerRegex.test(nextLine)) {
+                break;
+            }
+            if (optionRegex.test(nextLine)) {
+                return true;
+            }
+            break;
+        }
+        return false;
+    }
+    
+    function commitQuestion() {
+        const qText = currentQuestionText.trim();
+        if (!qText) return;
+        
+        const qNum = currentQuestionNumber || (parsedQuestions.length + 1);
+        
+        const questionErrors = [];
+        const labelNames = ['A', 'B', 'C', 'D'];
+        for (let idx = 0; idx < 4; idx++) {
+            if (currentOptions[idx] === undefined || currentOptions[idx] === '') {
+                questionErrors.push(`Question ${qNum} is missing Option ${labelNames[idx]}`);
+            }
+        }
+        
+        if (questionErrors.length) {
+            errors.push(...questionErrors);
+        }
+        
+        const cleanOptions = [];
+        for (let idx = 0; idx < 4; idx++) {
+            cleanOptions.push(currentOptions[idx] || '');
+        }
+        
+        parsedQuestions.push({
+            rowNumber: parsedQuestions.length + 1,
+            section: currentSection,
+            question: qText,
+            options: cleanOptions,
+            correctOption: currentAnswer || 'A',
+            originalOptionsCount: currentOptions.filter(x => x !== undefined && x !== '').length
+        });
+        
+        currentQuestionText = '';
+        currentOptions = [];
+        currentAnswer = '';
+        currentQuestionNumber = null;
+    }
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const answerMatch = line.match(answerRegex);
+        if (answerMatch) {
+            const ansVal = answerMatch[1].toUpperCase();
+            let correctLetter = 'A';
+            if (ansVal === 'A' || ansVal === '1') correctLetter = 'A';
+            else if (ansVal === 'B' || ansVal === '2') correctLetter = 'B';
+            else if (ansVal === 'C' || ansVal === '3') correctLetter = 'C';
+            else if (ansVal === 'D' || ansVal === '4') correctLetter = 'D';
+            currentAnswer = correctLetter;
+            continue;
+        }
+        
+        // Priority 1: Definite question lines
+        if (questionRegex.test(line)) {
+            commitQuestion();
+            
+            const numMatch = line.match(/^(?:q(?:uestion)?\s*(\d+)|\s*(\d+)[\)\.:])/i);
+            if (numMatch) {
+                currentQuestionNumber = parseInt(numMatch[1] || numMatch[2], 10);
+            }
+            
+            let qText = stripMarkdown(line);
+            const prefixMatch = qText.match(/^\s*[*_#\-\u2022\u25CF]*\s*(?:q(?:uestion)?\s*\d+\s*[:\.]?|\d+[\)\.:]|\#+\s*q(?:uestion)?\s*\d+)\s*/i);
+            if (prefixMatch) {
+                qText = qText.substring(prefixMatch[0].length);
+            }
+            
+            currentQuestionText = cleanQuotes(stripMarkdown(qText));
+            continue;
+        }
+        
+        // Priority 2: Option lines
+        const optionMatch = line.match(optionRegex);
+        if (optionMatch) {
+            let optionIndex = -1;
+            if (optionMatch[1]) {
+                const label = optionMatch[1].toUpperCase();
+                if (label === 'A' || label === '1') optionIndex = 0;
+                else if (label === 'B' || label === '2') optionIndex = 1;
+                else if (label === 'C' || label === '3') optionIndex = 2;
+                else if (label === 'D' || label === '4') optionIndex = 3;
+            } else {
+                optionIndex = currentOptions.filter(x => x !== undefined).length;
+            }
+            if (optionIndex >= 0 && optionIndex < 4) {
+                currentOptions[optionIndex] = cleanQuotes(stripMarkdown(optionMatch[3]));
+            }
+            continue;
+        }
+        
+        // Priority 3: Fallback question line (unnumbered)
+        if (isQuestionLine(i)) {
+            commitQuestion();
+            
+            const numMatch = line.match(/^(?:q(?:uestion)?\s*(\d+)|\s*(\d+)[\)\.:])/i);
+            if (numMatch) {
+                currentQuestionNumber = parseInt(numMatch[1] || numMatch[2], 10);
+            }
+            
+            let qText = stripMarkdown(line);
+            const prefixMatch = qText.match(/^\s*[*_#\-\u2022\u25CF]*\s*(?:q(?:uestion)?\s*\d+\s*[:\.]?|\d+[\)\.:]|\#+\s*q(?:uestion)?\s*\d+)\s*/i);
+            if (prefixMatch) {
+                qText = qText.substring(prefixMatch[0].length);
+            }
+            
+            currentQuestionText = cleanQuotes(stripMarkdown(qText));
+        } else {
+            if (currentQuestionText) {
+                currentQuestionText += ' ' + cleanQuotes(stripMarkdown(line));
+            } else {
+                commitQuestion();
+                currentSection = cleanQuotes(stripMarkdown(line));
+            }
+        }
+    }
+    
+    commitQuestion();
+    
+    const sections = Array.from(new Set(parsedQuestions.map(q => q.section))).sort((a, b) => a.localeCompare(b));
+    const validRows = parsedQuestions.filter(q => q.originalOptionsCount === 4);
+    
+    return {
+        headers: ['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option'],
+        rows: parsedQuestions.map(q => [q.section, q.question, ...q.options, q.correctOption]),
+        validRows: validRows,
+        rowErrors: [],
+        errors: errors,
+        totalRows: parsedQuestions.length,
+        totalValidRows: validRows.length,
+        sections: sections,
+    };
+}
+
+function parseImportQuestionsCsv(csvText) {
+    const source = String(csvText ?? '').replace(/^\uFEFF/, '');
+    const trimmedSource = source.trim();
+    if (!trimmedSource) {
+        return {
+            headers: [],
+            rows: [],
+            validRows: [],
+            rowErrors: [],
+            errors: ['CSV is empty.'],
+            totalRows: 0,
+            totalValidRows: 0,
+            sections: [],
+        };
+    }
+
+    const firstLine = trimmedSource.split(/\r?\n/)[0].toLowerCase();
+    const hasHeaders = firstLine.includes('question') && (firstLine.includes('correct_option') || firstLine.includes('correct option'));
+
+    if (!hasHeaders) {
+        const defaultSection = getUploadedFilename() || 'General';
+        return parseImportQuestionsPlainText(source, defaultSection);
+    }
+
+    const rows = [];
+    let currentRow = [];
+    let currentCell = '';
+    let inQuotes = false;
+
+    for (let index = 0; index < source.length; index++) {
+        const char = source[index];
+        const next = source[index + 1];
+
+        if (char === '"') {
+            if (inQuotes && next === '"') {
+                currentCell += '"';
+                index += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+
+        if (!inQuotes && char === ',') {
+            currentRow.push(currentCell);
+            currentCell = '';
+            continue;
+        }
+
+        if (!inQuotes && (char === '\n' || char === '\r')) {
+            if (char === '\r' && next === '\n') {
+                index += 1;
+            }
+            currentRow.push(currentCell);
+            rows.push(currentRow);
+            currentRow = [];
+            currentCell = '';
+            continue;
+        }
+
+        currentCell += char;
+    }
+
+    if (inQuotes) {
+        return {
+            headers: [],
+            rows: [],
+            validRows: [],
+            rowErrors: [],
+            errors: ['Malformed CSV: unmatched quotation mark.'],
+            totalRows: 0,
+            totalValidRows: 0,
+            sections: [],
+        };
+    }
+
+    currentRow.push(currentCell);
+    rows.push(currentRow);
+
+    while (rows.length && rows[0].every(cell => String(cell || '').trim() === '')) {
+        rows.shift();
+    }
+    while (rows.length && rows[rows.length - 1].every(cell => String(cell || '').trim() === '')) {
+        rows.pop();
+    }
+
+    if (!rows.length) {
+        return {
+            headers: [],
+            rows: [],
+            validRows: [],
+            rowErrors: [],
+            errors: ['CSV is empty.'],
+            totalRows: 0,
+            totalValidRows: 0,
+            sections: [],
+        };
+    }
+
+    const headers = rows.shift().map(cell => String(cell || '').trim());
+    const normalizedHeaders = headers.map(normalizeImportCsvHeader);
+    const errors = [];
+    const headerCounts = new Map();
+
+    normalizedHeaders.forEach(header => {
+        if (!header) return;
+        headerCounts.set(header, (headerCounts.get(header) || 0) + 1);
+    });
+
+    const duplicateHeaders = Array.from(headerCounts.entries())
+        .filter(([, count]) => count > 1)
+        .map(([header]) => header);
+
+    if (duplicateHeaders.length) {
+        errors.push(`Duplicate header(s): ${duplicateHeaders.join(', ')}.`);
+    }
+
+    const missingHeaders = IMPORT_QUESTIONS_REQUIRED_HEADERS.filter(required => !normalizedHeaders.includes(required));
+    if (missingHeaders.length) {
+        errors.push(`Missing required column(s): ${missingHeaders.join(', ')}.`);
+    }
+
+    const validRows = [];
+    const rowErrors = [];
+
+    rows.forEach((row, rowIndex) => {
+        const rowNumber = rowIndex + 2;
+        if (row.length !== headers.length) {
+            rowErrors.push({ rowNumber, errors: [`Malformed CSV row: expected ${headers.length} columns, found ${row.length}.`] });
+            return;
+        }
+
+        const record = {};
+        headers.forEach((header, columnIndex) => {
+            const normalizedHeader = normalizeImportCsvHeader(header);
+            record[normalizedHeader] = String(row[columnIndex] ?? '').trim();
+        });
+
+        const rowValidationErrors = [];
+        const section = record.section || '';
+        const question = record.question || '';
+        const option1 = record.option1 || '';
+        const option2 = record.option2 || '';
+        const option3 = record.option3 || '';
+        const option4 = record.option4 || '';
+        const correctOption = String(record.correct_option || '').trim().toUpperCase();
+
+        if (!section) rowValidationErrors.push('section is missing.');
+        if (!question) rowValidationErrors.push('question is missing.');
+        if (!option1) rowValidationErrors.push('option1 is missing.');
+        if (!option2) rowValidationErrors.push('option2 is missing.');
+        if (!option3) rowValidationErrors.push('option3 is missing.');
+        if (!option4) rowValidationErrors.push('option4 is missing.');
+        if (!['A', 'B', 'C', 'D'].includes(correctOption)) rowValidationErrors.push('correct_option must be A, B, C, or D.');
+
+        if (rowValidationErrors.length) {
+            rowErrors.push({ rowNumber, errors: rowValidationErrors });
+            return;
+        }
+
+        validRows.push({
+            rowNumber,
+            section,
+            question,
+            options: [option1, option2, option3, option4],
+            correctOption,
+            chapter: record.chapter || '',
+            topic: record.topic || '',
+            subtopic: record.subtopic || '',
+        });
+    });
+
+    const sections = Array.from(new Set(validRows.map(row => row.section.trim()))).sort((a, b) => a.localeCompare(b));
+
+    return {
+        headers,
+        rows,
+        validRows,
+        rowErrors,
+        errors,
+        totalRows: rows.length,
+        totalValidRows: validRows.length,
+        sections,
+    };
+}
+
+function renderImportQuestionsPreview(result) {
+    const previewCount = document.querySelector('#importQuestionsModal .import-preview-count');
+    const previewEmpty = document.querySelector('#importQuestionsModal .import-preview-empty');
+    const previewList = document.getElementById('importQuestionsPreviewList');
+    const validationMessage = document.getElementById('importQuestionsValidationMessage');
+    const confirmBtn = document.getElementById('confirmImportQuestionsBtn');
+
+    if (!previewCount || !previewEmpty || !previewList || !validationMessage || !confirmBtn) return;
+
+    const hasErrors = result.errors.length > 0 || result.rowErrors.length > 0;
+    previewCount.textContent = `${result.totalValidRows} valid question${result.totalValidRows === 1 ? '' : 's'} in ${result.sections.length} section${result.sections.length === 1 ? '' : 's'}`;
+
+    if (hasErrors) {
+        const messages = [...result.errors, ...result.rowErrors.map(rowError => `Row ${rowError.rowNumber}: ${rowError.errors.join(' ')}`)];
+        validationMessage.textContent = messages.join('\n');
+        validationMessage.classList.remove('success');
+        validationMessage.hidden = false;
+    } else {
+        validationMessage.classList.add('success');
+        validationMessage.textContent = `Ready to import ${result.totalValidRows} question${result.totalValidRows === 1 ? '' : 's'} into ${result.sections.length} section${result.sections.length === 1 ? '' : 's'}.`;
+        validationMessage.hidden = false;
+    }
+
+    if (!result.totalValidRows) {
+        previewEmpty.textContent = 'No valid questions were found in the CSV.';
+        previewEmpty.hidden = false;
+        previewList.hidden = true;
+        previewList.innerHTML = '';
+        confirmBtn.disabled = true;
+        return;
+    }
+
+    const groupedRows = new Map();
+    result.validRows.forEach(row => {
+        if (!groupedRows.has(row.section)) groupedRows.set(row.section, []);
+        groupedRows.get(row.section).push(row);
+    });
+
+    previewEmpty.hidden = true;
+    previewList.hidden = false;
+    previewList.innerHTML = Array.from(groupedRows.entries()).map(([sectionName, sectionRows]) => `
+        <article class="import-preview-section">
+            <div class="import-preview-section-header">
+                <div class="import-preview-section-title">${esc(sectionName)}</div>
+                <div class="import-preview-section-count">${sectionRows.length} question${sectionRows.length === 1 ? '' : 's'}</div>
+            </div>
+            ${sectionRows.map((row, index) => `
+                <div class="import-preview-question">
+                    <div class="import-preview-question-text">${index + 1}. ${esc(row.question)}</div>
+                    <div class="import-preview-options">
+                        <div><span class="import-preview-option-label">A.</span> ${esc(row.options[0])}</div>
+                        <div><span class="import-preview-option-label">B.</span> ${esc(row.options[1])}</div>
+                        <div><span class="import-preview-option-label">C.</span> ${esc(row.options[2])}</div>
+                        <div><span class="import-preview-option-label">D.</span> ${esc(row.options[3])}</div>
+                    </div>
+                    <div class="import-preview-correct">Correct: ${esc(row.correctOption)}</div>
+                </div>
+            `).join('')}
+        </article>
+    `).join('');
+
+    confirmBtn.disabled = hasErrors || !result.totalValidRows;
 }
 
 function initDeletePaperModal() {
@@ -3880,6 +5293,15 @@ function openAdvancedEditorModal(editorId) {
             els.toast.style.pointerEvents = 'none';
         }
         modal.removeAttribute('hidden');
+
+        // ✅ Refresh the editor layout to guarantee container boundaries are calculated correctly
+        try {
+            if (typeof activeTuiEditorInstance.refresh === 'function') {
+                activeTuiEditorInstance.refresh();
+            }
+        } catch (e) {
+            console.warn('[AdvancedEditor] refresh failed on reuse:', e);
+        }
         return;
     }
 
@@ -3887,6 +5309,9 @@ function openAdvancedEditorModal(editorId) {
     toast('Loading Advanced Editor…');
 
     loadToastUI().then(() => {
+        // ✅ Show the modal first so that #tuiEditorContainer has visible dimensions!
+        modal.removeAttribute('hidden');
+
         createTuiEditorInstance();
 
         if (!tuiEditorReady) {
@@ -3894,13 +5319,20 @@ function openAdvancedEditorModal(editorId) {
             return;
         }
 
+        // Refresh layout on first creation to align toolbar elements properly
+        try {
+            if (activeTuiEditorInstance && typeof activeTuiEditorInstance.refresh === 'function') {
+                activeTuiEditorInstance.refresh();
+            }
+        } catch (e) {
+            console.warn('[AdvancedEditor] refresh failed on creation:', e);
+        }
+
         // Dismiss loading toast
         if (els.toast && els.toast.textContent.includes('Loading')) {
             els.toast.classList.remove('show');
             els.toast.style.pointerEvents = 'none';
         }
-
-        modal.removeAttribute('hidden');
         console.log('[AdvancedEditor] Modal visible.');
     }).catch(err => {
         console.error('[AdvancedEditor] Initialization error:', err);
@@ -3969,8 +5401,6 @@ function initAdvancedEditorModal() {
     loadToastUI()
         .then(() => {
             console.log('[AdvancedEditor] Toast UI pre-loaded in background.');
-            // Create the persistent instance now so the first open is instant.
-            createTuiEditorInstance();
         })
         .catch(err => {
             // Non-fatal: the editor will retry when the user actually clicks Table.
@@ -5126,7 +6556,7 @@ function exportBackup() {
 function exportQuestionsCsv() {
     const paper = getActivePaper();
     if (!paper) return;
-    const rows = [['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option']];
+    const rows = [['section', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_option', 'chapter', 'topic', 'subtopic']];
     paper.sections.forEach(section => {
         section.questions.forEach(question => {
             rows.push([
@@ -5137,6 +6567,9 @@ function exportQuestionsCsv() {
                 plainText(question.options[2]?.text || ''),
                 plainText(question.options[3]?.text || ''),
                 LABELS[question.correctIndex] || 'A',
+                question.chapter || '',
+                question.topic || '',
+                question.subtopic || '',
             ]);
         });
     });
@@ -6412,6 +7845,11 @@ function buildWordHtml(paper) {
             questionBlocks.push(`
                 <div class="question">
                     <p><b>${globalIndex})</b> ${formatForWord(question.text)}</p>
+                    ${(question.chapter || question.topic || question.subtopic) ? `
+                        <p style="font-size: 10pt; color: #666666; font-style: italic; margin-top: 2pt; margin-bottom: 2pt; margin-left: 18pt;">
+                            [Chapter: ${esc(question.chapter || '-')} | Topic: ${esc(question.topic || '-')} | Subtopic: ${esc(question.subtopic || '-')}]
+                        </p>
+                    ` : ''}
                     ${optionsForWord(question)}
                 </div>
             `);
