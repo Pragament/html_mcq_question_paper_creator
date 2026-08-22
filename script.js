@@ -6,13 +6,31 @@ const UI_CONFIG = {
 };
 const LABELS = ['A', 'B', 'C', 'D'];
 function getAnswerKeyLabel(question) {
-    if (question.allowMultiCorrect) {
+    if (question.allowMultiCorrect || question.qType === 'multiple') {
         const indexes = question.correctIndexes || [question.correctIndex];
         if (indexes.length === 0) return 'None';
         return indexes.map(idx => LABELS[idx]).sort().join(', ');
     } else {
         return LABELS[question.correctIndex] || 'A';
     }
+}
+function validateStudentAnswer(question, selectedOptions) {
+    const isMultiple = question.qType === 'multiple' || question.allowMultiCorrect;
+    const correctLetters = isMultiple
+        ? (question.correctIndexes || [question.correctIndex]).map(idx => LABELS[idx])
+        : [LABELS[question.correctIndex] || 'A'];
+
+    const studentLetters = selectedOptions.map(opt => {
+        if (typeof opt === 'number') return LABELS[opt];
+        return String(opt).toUpperCase().trim();
+    });
+
+    if (correctLetters.length !== studentLetters.length) return false;
+
+    const allCorrectSelected = correctLetters.every(letter => studentLetters.includes(letter));
+    const noIncorrectSelected = studentLetters.every(letter => correctLetters.includes(letter));
+
+    return allCorrectSelected && noIncorrectSelected;
 }
 const LAYOUTS = [
     { id: 'row', label: '1x4' },
@@ -1134,17 +1152,21 @@ function renderWorkbench() {
         });
     });
 
-    els.workbench.querySelectorAll('.multi-correct-toggle').forEach(input => {
-        input.addEventListener('change', () => {
-            const qid = input.dataset.qid;
+    els.workbench.querySelectorAll('.q-type-select').forEach(select => {
+        select.addEventListener('change', () => {
+            const qid = select.dataset.qid;
             const question = findQuestion(qid);
             if (question) {
-                question.allowMultiCorrect = input.checked;
-                if (!question.allowMultiCorrect) {
+                const value = select.value;
+                if (value === 'single') {
+                    question.qType = 'single';
+                    question.allowMultiCorrect = false;
                     const indexes = question.correctIndexes || [question.correctIndex];
                     question.correctIndex = indexes.length > 0 ? indexes[0] : 0;
                     question.correctIndexes = [question.correctIndex];
                 } else {
+                    question.qType = 'multiple';
+                    question.allowMultiCorrect = true;
                     if (!Array.isArray(question.correctIndexes)) {
                         question.correctIndexes = [question.correctIndex];
                     }
@@ -1213,6 +1235,20 @@ function renderWorkbench() {
 }
 
 function questionCard(question, index) {
+    const isMultiple = question.qType === 'multiple';
+    const correctCount = (question.correctIndexes || [question.correctIndex]).length;
+    let validationMsg = '';
+
+    if (isMultiple) {
+        if (correctCount < 2) {
+            validationMsg = '⚠️ At least TWO correct options must be selected.';
+        }
+    } else {
+        if (correctCount !== 1) {
+            validationMsg = '⚠️ Exactly ONE correct option must be selected.';
+        }
+    }
+
     return `
         <article class="question-card" data-card="${question.id}">
             <div class="question-head">
@@ -1226,6 +1262,16 @@ function questionCard(question, index) {
                         placeholder: 'Type question. Paste images here. Use math like \\(x^2\\).'
                     })}
                     <div class="paste-hint">Paste images directly at the cursor. Use simple markdown for bold, italics, and math.</div>
+                    <div class="q-type-container" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 13px; font-weight: 600;">Question Type:</span>
+                        <select class="q-type-select" data-qid="${question.id}" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer;">
+                            <option value="single" ${!isMultiple ? 'selected' : ''}>Single Correct</option>
+                            <option value="multiple" ${isMultiple ? 'selected' : ''}>Multiple Correct</option>
+                        </select>
+                        <span class="paste-hint" style="margin-left: 10px; font-style: italic;">
+                            ${isMultiple ? 'Select all correct answers' : 'Select one correct answer'}
+                        </span>
+                    </div>
                 </div>
                 <div class="question-tools-column">
                     <div class="question-tools">
@@ -1245,11 +1291,10 @@ function questionCard(question, index) {
                 ${question.options.map((option, optionIndex) => optionCard(question, option, optionIndex)).join('')}
             </div>
             <div class="layout-row" style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
-                <span class="paste-hint">Answer: ${getAnswerKeyLabel(question)}</span>
-                <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-muted, #64748b);">
-                    <input type="checkbox" class="multi-correct-toggle" data-qid="${question.id}" ${question.allowMultiCorrect ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: var(--primary);" />
-                    Allow multiple correct answers
-                </label>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span class="paste-hint">Answer: ${getAnswerKeyLabel(question)}</span>
+                    ${validationMsg ? `<span class="question-validation-error" style="color: #ef4444; font-size: 12px; font-weight: 500;">${validationMsg}</span>` : ''}
+                </div>
             </div>
             <div class="question-metadata-row">
                 <div class="field" style="position: relative;">
@@ -3882,10 +3927,12 @@ function renderPrintPaper() {
     const sectionsHtml = paper.sections.map(section => {
         if (!section.questions.length) return '';
         const questionsHtml = section.questions.map((question, index) => {
+            const isMultiple = question.qType === 'multiple' || question.allowMultiCorrect;
             const optionsHtml = question.options.map((option, optionIndex) => {
+                const prefix = isMultiple ? '☐ ' : '';
                 return `
                     <div class="print-option">
-                        <span class="print-option-label">${LABELS[optionIndex]}.</span>
+                        <span class="print-option-label">${prefix}${LABELS[optionIndex]}.</span>
                         <div class="print-option-text">${markdownToVisualHtml(option.text)}</div>
                     </div>
                 `;
@@ -3896,6 +3943,7 @@ function renderPrintPaper() {
                     <div class="print-question-header">
                         <span class="print-q-number">${index + 1}.</span>
                         <div class="print-q-text">
+                            ${isMultiple ? '<div style="font-weight: bold; font-size: 11px; margin-bottom: 2px; color: #1e293b;">(Question Type: Multiple Correct)</div>' : ''}
                             ${markdownToVisualHtml(question.text)}
                             ${(question.chapter || question.topic || question.subtopic) ? `
                                 <div class="print-question-metadata" style="font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic;">
@@ -4595,9 +4643,9 @@ function buildImportQuestionsPrompt(values) {
 
 "section","question","option1","option2","option3","option4","correct_option"
 "Mathematics","Degree measure of a circle is ___ degrees","90","180","270","360","D"
-"Mathematics","If a line intersect a circle in two distinct points, then it is called","Secant","tangent","median","altitude","A"
+"Mathematics","Which of the following are prime numbers?","2","3","4","5","A,B,D"
 
-Extract ALL questions from the whole PDF and return them in the same format. Do not skip or create questions.`;
+Extract ALL questions from the whole PDF and return them in the same format. Do not skip or create questions. Questions can have either a single correct answer (e.g. "D") or multiple correct answers (e.g. "A,B,D"). Return multiple correct options as a comma-separated list of alphabetical option letters.`;
 }
 
 function getUploadedFilename() {
@@ -7899,9 +7947,10 @@ function buildWordHtml(paper) {
         questionBlocks.push(`<h2>${esc(section.name)}</h2>`);
         section.questions.forEach(question => {
             globalIndex += 1;
+            const isMultiple = question.qType === 'multiple' || question.allowMultiCorrect;
             questionBlocks.push(`
                 <div class="question">
-                    <p><b>${globalIndex})</b> ${formatForWord(question.text)}</p>
+                    <p><b>${globalIndex})</b> ${isMultiple ? '<b>(Question Type: Multiple Correct)</b> ' : ''}${formatForWord(question.text)}</p>
                     ${(question.chapter || question.topic || question.subtopic) ? `
                         <p style="font-size: 10pt; color: #666666; font-style: italic; margin-top: 2pt; margin-bottom: 2pt; margin-left: 18pt;">
                             [Chapter: ${esc(question.chapter || '-')} | Topic: ${esc(question.topic || '-')} | Subtopic: ${esc(question.subtopic || '-')}]
