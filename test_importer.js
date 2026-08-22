@@ -178,6 +178,18 @@ test('Mixed Line Endings (Windows/Linux/Mac)', () => {
     if (result.totalValidRows !== 1) throw new Error(`Expected 1 valid row, got ${result.totalValidRows}`);
 });
 
+test('Multiple Correct Options Import', () => {
+    const csvContent = `"section","question","option1","option2","option3","option4","correct_option"
+"Mathematics","Select all prime numbers","1","2","3","4","B, C"`;
+
+    const result = parseImportQuestionsCsv(csvContent);
+    if (result.errors.length) throw new Error(`Should have no errors, got: ${result.errors.join(', ')}`);
+    if (result.totalValidRows !== 1) throw new Error(`Expected 1 valid row, got ${result.totalValidRows}`);
+    
+    const row = result.validRows[0];
+    if (row.correctOption !== 'B, C') throw new Error(`Expected correct_option to be "B, C", got "${row.correctOption}"`);
+});
+
 // Run all tests
 let failedCount = 0;
 console.log('Running MCQ Importer Unit Tests...');

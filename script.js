@@ -5,6 +5,15 @@ const UI_CONFIG = {
     showDuplicate: false
 };
 const LABELS = ['A', 'B', 'C', 'D'];
+function getAnswerKeyLabel(question) {
+    if (question.allowMultiCorrect) {
+        const indexes = question.correctIndexes || [question.correctIndex];
+        if (indexes.length === 0) return 'None';
+        return indexes.map(idx => LABELS[idx]).sort().join(', ');
+    } else {
+        return LABELS[question.correctIndex] || 'A';
+    }
+}
 const LAYOUTS = [
     { id: 'row', label: '1x4' },
     { id: 'grid2', label: '2x2' },
@@ -238,6 +247,12 @@ function normalize() {
                 }
                 question.options = question.options.slice(0, 4);
                 if (!Number.isInteger(question.correctIndex)) question.correctIndex = 0;
+                if (!Array.isArray(question.correctIndexes)) {
+                    question.correctIndexes = [question.correctIndex];
+                }
+                if (question.allowMultiCorrect === undefined) {
+                    question.allowMultiCorrect = question.correctIndexes.length > 1;
+                }
             });
         });
     });
@@ -295,6 +310,8 @@ function newQuestion(text = '', options = ['', '', '', ''], correctIndex = 0) {
         text,
         layout: 'row',
         correctIndex,
+        correctIndexes: [correctIndex],
+        allowMultiCorrect: false,
         marks: 1,
         chapter: '',
         topic: '',
@@ -1092,8 +1109,49 @@ function renderWorkbench() {
 
     els.workbench.querySelectorAll('[data-correct]').forEach(input => {
         input.addEventListener('change', () => {
-            findQuestion(input.dataset.qid).correctIndex = Number(input.dataset.correct);
-            render();
+            const qid = input.dataset.qid;
+            const correctIndex = Number(input.dataset.correct);
+            const question = findQuestion(qid);
+            if (question) {
+                if (question.allowMultiCorrect) {
+                    let indexes = question.correctIndexes || [question.correctIndex];
+                    if (input.checked) {
+                        if (!indexes.includes(correctIndex)) {
+                            indexes.push(correctIndex);
+                        }
+                    } else {
+                        indexes = indexes.filter(idx => idx !== correctIndex);
+                    }
+                    question.correctIndexes = indexes;
+                    question.correctIndex = indexes.length > 0 ? indexes[0] : 0;
+                } else {
+                    question.correctIndex = correctIndex;
+                    question.correctIndexes = [correctIndex];
+                }
+                render();
+                save();
+            }
+        });
+    });
+
+    els.workbench.querySelectorAll('.multi-correct-toggle').forEach(input => {
+        input.addEventListener('change', () => {
+            const qid = input.dataset.qid;
+            const question = findQuestion(qid);
+            if (question) {
+                question.allowMultiCorrect = input.checked;
+                if (!question.allowMultiCorrect) {
+                    const indexes = question.correctIndexes || [question.correctIndex];
+                    question.correctIndex = indexes.length > 0 ? indexes[0] : 0;
+                    question.correctIndexes = [question.correctIndex];
+                } else {
+                    if (!Array.isArray(question.correctIndexes)) {
+                        question.correctIndexes = [question.correctIndex];
+                    }
+                }
+                render();
+                save();
+            }
         });
     });
 
@@ -1186,8 +1244,12 @@ function questionCard(question, index) {
             <div class="options-grid ${question.layout}">
                 ${question.options.map((option, optionIndex) => optionCard(question, option, optionIndex)).join('')}
             </div>
-            <div class="layout-row">
-                <span class="paste-hint">Answer: ${LABELS[question.correctIndex] || 'A'}</span>
+            <div class="layout-row" style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+                <span class="paste-hint">Answer: ${getAnswerKeyLabel(question)}</span>
+                <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-muted, #64748b);">
+                    <input type="checkbox" class="multi-correct-toggle" data-qid="${question.id}" ${question.allowMultiCorrect ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: var(--primary);" />
+                    Allow multiple correct answers
+                </label>
             </div>
             <div class="question-metadata-row">
                 <div class="field" style="position: relative;">
@@ -1211,8 +1273,15 @@ function questionCard(question, index) {
 }
 
 function optionCard(question, option, optionIndex) {
+    const isCorrect = question.allowMultiCorrect
+        ? (question.correctIndexes || [question.correctIndex]).includes(optionIndex)
+        : question.correctIndex === optionIndex;
+
+    const inputType = question.allowMultiCorrect ? 'checkbox' : 'radio';
+    const inputClass = question.allowMultiCorrect ? 'correct-checkbox' : 'correct-radio';
+
     return `
-        <div class="option-card ${question.correctIndex === optionIndex ? 'correct' : ''}">
+        <div class="option-card ${isCorrect ? 'correct' : ''}">
             <span class="option-label">${LABELS[optionIndex]}.</span>
             <div>
                 ${richEditor({
@@ -1224,7 +1293,7 @@ function optionCard(question, option, optionIndex) {
                     placeholder: `Option ${LABELS[optionIndex]}`
                 })}
             </div>
-            <input class="correct-radio" type="radio" name="correct-${question.id}" ${question.correctIndex === optionIndex ? 'checked' : ''} data-correct="${optionIndex}" data-qid="${question.id}" title="Correct answer" />
+            <input class="${inputClass}" type="${inputType}" name="correct-${question.id}" ${isCorrect ? 'checked' : ''} data-correct="${optionIndex}" data-qid="${question.id}" title="Correct answer" />
             <span></span>
         </div>
     `;
@@ -3430,7 +3499,7 @@ function renderReuseResults() {
     results.innerHTML = matches.length ? matches.map((item, index) => `
         <button class="reuse-item" data-reuse-index="${index}">
             <strong>${esc(plainText(item.question.text).slice(0, 90) || 'Untitled question')}</strong>
-            <span>${esc(item.paperTitle)} / ${esc(item.sectionName)} · Answer ${LABELS[item.question.correctIndex] || 'A'}</span>
+            <span>${esc(item.paperTitle)} / ${esc(item.sectionName)} · Answer ${getAnswerKeyLabel(item.question)}</span>
         </button>
     `).join('') : '<div class="reuse-empty">No matching saved questions.</div>';
     results.querySelectorAll('[data-reuse-index]').forEach(btn => {
@@ -3509,6 +3578,8 @@ function applyQuestionSuggestion(qid, suggestion) {
     question.text = copy.text;
     question.options = copy.options;
     question.correctIndex = copy.correctIndex;
+    question.correctIndexes = copy.correctIndexes || [copy.correctIndex];
+    question.allowMultiCorrect = !!copy.allowMultiCorrect;
     question.layout = copy.layout;
     render();
     toast('Question filled from saved paper');
@@ -3782,7 +3853,7 @@ function renderTeacherPanel() {
             <h3>Answer Key</h3>
             <div class="answer-key">
                 ${questions.length ? questions.map((q, i) => `
-                    <div class="answer-key-row"><span>${i + 1}</span><b>${LABELS[q.correctIndex] || 'A'}</b></div>
+                    <div class="answer-key-row"><span>${i + 1}</span><b>${getAnswerKeyLabel(q)}</b></div>
                 `).join('') : '<span class="paste-hint">No questions yet.</span>'}
             </div>
         </div>
@@ -4422,8 +4493,26 @@ function initImportQuestionsModal() {
                 touchedSections.push(section);
             }
 
-            const correctIndex = LABELS.indexOf(row.correctOption);
-            const question = newQuestion(row.question, row.options, correctIndex >= 0 ? correctIndex : 0);
+            let allowMultiCorrect = false;
+            let correctIndexes = [];
+            let correctIndex = 0;
+
+            const rawCorrect = String(row.correctOption || 'A').toUpperCase().trim();
+            const matchedLetters = rawCorrect.match(/[A-D]/g);
+            if (matchedLetters && matchedLetters.length > 0) {
+                correctIndexes = matchedLetters.map(letter => LABELS.indexOf(letter)).filter(idx => idx >= 0);
+                if (correctIndexes.length > 1) {
+                    allowMultiCorrect = true;
+                }
+                correctIndex = correctIndexes[0] || 0;
+            } else {
+                correctIndex = 0;
+                correctIndexes = [0];
+            }
+
+            const question = newQuestion(row.question, row.options, correctIndex);
+            question.allowMultiCorrect = allowMultiCorrect;
+            question.correctIndexes = correctIndexes;
             question.chapter = row.chapter || '';
             question.topic = row.topic || '';
             question.subtopic = row.subtopic || '';
@@ -4878,7 +4967,11 @@ function parseImportQuestionsCsv(csvText) {
         if (!option2) rowValidationErrors.push('option2 is missing.');
         if (!option3) rowValidationErrors.push('option3 is missing.');
         if (!option4) rowValidationErrors.push('option4 is missing.');
-        if (!['A', 'B', 'C', 'D'].includes(correctOption)) rowValidationErrors.push('correct_option must be A, B, C, or D.');
+        const matchedLetters = correctOption.match(/[A-D]/g);
+        const hasInvalidLetters = /[E-Z]/i.test(correctOption);
+        if (!matchedLetters || matchedLetters.length === 0 || hasInvalidLetters) {
+            rowValidationErrors.push('correct_option must be combinations of A, B, C, or D.');
+        }
 
         if (rowValidationErrors.length) {
             rowErrors.push({ rowNumber, errors: rowValidationErrors });
@@ -6530,7 +6623,7 @@ function exportQuestionsCsv() {
                 plainText(question.options[1]?.text || ''),
                 plainText(question.options[2]?.text || ''),
                 plainText(question.options[3]?.text || ''),
-                LABELS[question.correctIndex] || 'A',
+                getAnswerKeyLabel(question),
                 question.chapter || '',
                 question.topic || '',
                 question.subtopic || '',
@@ -6549,7 +6642,7 @@ function exportAnswerKeyCsv() {
     paper.sections.forEach(section => {
         section.questions.forEach(question => {
             number += 1;
-            rows.push([section.name, number, LABELS[question.correctIndex] || 'A']);
+            rows.push([section.name, number, getAnswerKeyLabel(question)]);
         });
     });
     downloadBlob(new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }), `${fileName(paper.title)}_answer_key.csv`);
@@ -7190,7 +7283,7 @@ function buildDocumentXml(paper, media) {
 
             const answerEntries = section.questions.map(question => {
                 answerQuestionNumber += 1;
-                const answerLabel = LABELS[question.correctIndex] || 'A';
+                const answerLabel = getAnswerKeyLabel(question);
                 return `${answerQuestionNumber} - ${answerLabel}`;
             });
 
@@ -7819,7 +7912,7 @@ function buildWordHtml(paper) {
             `);
         });
     });
-    const key = allQuestions(paper).map((q, i) => `${i + 1}. ${LABELS[q.correctIndex] || 'A'}`).join('&nbsp;&nbsp;&nbsp;');
+    const key = allQuestions(paper).map((q, i) => `${i + 1}. ${getAnswerKeyLabel(q)}`).join('&nbsp;&nbsp;&nbsp;');
     return `
         <!DOCTYPE html>
         <html>
