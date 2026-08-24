@@ -6,20 +6,12 @@ const UI_CONFIG = {
 };
 const LABELS = ['A', 'B', 'C', 'D'];
 function getAnswerKeyLabel(question) {
-    if (question.allowMultiCorrect || question.qType === 'multiple') {
-        const indexes = question.correctIndexes || [question.correctIndex];
-        if (indexes.length === 0) return 'None';
-        return indexes.map(idx => LABELS[idx]).sort().join(', ');
-    } else {
-        return LABELS[question.correctIndex] || 'A';
-    }
+    const indexes = question.correctIndexes || [question.correctIndex];
+    if (indexes.length === 0) return 'None';
+    return indexes.map(idx => LABELS[idx]).sort().join(', ');
 }
 function validateStudentAnswer(question, selectedOptions) {
-    const isMultiple = question.qType === 'multiple' || question.allowMultiCorrect;
-    const correctLetters = isMultiple
-        ? (question.correctIndexes || [question.correctIndex]).map(idx => LABELS[idx])
-        : [LABELS[question.correctIndex] || 'A'];
-
+    const correctLetters = (question.correctIndexes || [question.correctIndex]).map(idx => LABELS[idx]);
     const studentLetters = selectedOptions.map(opt => {
         if (typeof opt === 'number') return LABELS[opt];
         return String(opt).toUpperCase().trim();
@@ -268,9 +260,11 @@ function normalize() {
                 if (!Array.isArray(question.correctIndexes)) {
                     question.correctIndexes = [question.correctIndex];
                 }
-                if (question.allowMultiCorrect === undefined) {
-                    question.allowMultiCorrect = question.correctIndexes.length > 1;
-                }
+                question.correctIndexes = question.correctIndexes
+                    .map(Number)
+                    .filter(idx => idx >= 0 && idx < 4)
+                    .sort((a, b) => a - b);
+                question.correctIndex = question.correctIndexes.length > 0 ? question.correctIndexes[0] : 0;
             });
         });
     });
@@ -1131,46 +1125,16 @@ function renderWorkbench() {
             const correctIndex = Number(input.dataset.correct);
             const question = findQuestion(qid);
             if (question) {
-                if (question.allowMultiCorrect) {
-                    let indexes = question.correctIndexes || [question.correctIndex];
-                    if (input.checked) {
-                        if (!indexes.includes(correctIndex)) {
-                            indexes.push(correctIndex);
-                        }
-                    } else {
-                        indexes = indexes.filter(idx => idx !== correctIndex);
+                let indexes = question.correctIndexes || [question.correctIndex];
+                if (input.checked) {
+                    if (!indexes.includes(correctIndex)) {
+                        indexes.push(correctIndex);
                     }
-                    question.correctIndexes = indexes;
-                    question.correctIndex = indexes.length > 0 ? indexes[0] : 0;
                 } else {
-                    question.correctIndex = correctIndex;
-                    question.correctIndexes = [correctIndex];
+                    indexes = indexes.filter(idx => idx !== correctIndex);
                 }
-                render();
-                save();
-            }
-        });
-    });
-
-    els.workbench.querySelectorAll('.q-type-select').forEach(select => {
-        select.addEventListener('change', () => {
-            const qid = select.dataset.qid;
-            const question = findQuestion(qid);
-            if (question) {
-                const value = select.value;
-                if (value === 'single') {
-                    question.qType = 'single';
-                    question.allowMultiCorrect = false;
-                    const indexes = question.correctIndexes || [question.correctIndex];
-                    question.correctIndex = indexes.length > 0 ? indexes[0] : 0;
-                    question.correctIndexes = [question.correctIndex];
-                } else {
-                    question.qType = 'multiple';
-                    question.allowMultiCorrect = true;
-                    if (!Array.isArray(question.correctIndexes)) {
-                        question.correctIndexes = [question.correctIndex];
-                    }
-                }
+                question.correctIndexes = indexes.sort((a, b) => a - b);
+                question.correctIndex = indexes.length > 0 ? indexes[0] : 0;
                 render();
                 save();
             }
@@ -1235,18 +1199,10 @@ function renderWorkbench() {
 }
 
 function questionCard(question, index) {
-    const isMultiple = question.qType === 'multiple';
     const correctCount = (question.correctIndexes || [question.correctIndex]).length;
     let validationMsg = '';
-
-    if (isMultiple) {
-        if (correctCount < 2) {
-            validationMsg = '⚠️ At least TWO correct options must be selected.';
-        }
-    } else {
-        if (correctCount !== 1) {
-            validationMsg = '⚠️ Exactly ONE correct option must be selected.';
-        }
+    if (correctCount === 0) {
+        validationMsg = '⚠️ Please select at least one correct option.';
     }
 
     return `
@@ -1263,14 +1219,7 @@ function questionCard(question, index) {
                     })}
                     <div class="paste-hint">Paste images directly at the cursor. Use simple markdown for bold, italics, and math.</div>
                     <div class="q-type-container" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 13px; font-weight: 600;">Question Type:</span>
-                        <select class="q-type-select" data-qid="${question.id}" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer;">
-                            <option value="single" ${!isMultiple ? 'selected' : ''}>Single Correct</option>
-                            <option value="multiple" ${isMultiple ? 'selected' : ''}>Multiple Correct</option>
-                        </select>
-                        <span class="paste-hint" style="margin-left: 10px; font-style: italic;">
-                            ${isMultiple ? 'Select all correct answers' : 'Select one correct answer'}
-                        </span>
+                        <span class="paste-hint" style="font-style: italic;">Select the correct answer(s)</span>
                     </div>
                 </div>
                 <div class="question-tools-column">
@@ -1318,12 +1267,7 @@ function questionCard(question, index) {
 }
 
 function optionCard(question, option, optionIndex) {
-    const isCorrect = question.allowMultiCorrect
-        ? (question.correctIndexes || [question.correctIndex]).includes(optionIndex)
-        : question.correctIndex === optionIndex;
-
-    const inputType = question.allowMultiCorrect ? 'checkbox' : 'radio';
-    const inputClass = question.allowMultiCorrect ? 'correct-checkbox' : 'correct-radio';
+    const isCorrect = (question.correctIndexes || [question.correctIndex]).includes(optionIndex);
 
     return `
         <div class="option-card ${isCorrect ? 'correct' : ''}">
@@ -1338,7 +1282,7 @@ function optionCard(question, option, optionIndex) {
                     placeholder: `Option ${LABELS[optionIndex]}`
                 })}
             </div>
-            <input class="${inputClass}" type="${inputType}" name="correct-${question.id}" ${isCorrect ? 'checked' : ''} data-correct="${optionIndex}" data-qid="${question.id}" title="Correct answer" />
+            <input class="correct-checkbox" type="checkbox" name="correct-${question.id}" ${isCorrect ? 'checked' : ''} data-correct="${optionIndex}" data-qid="${question.id}" title="Correct answer" />
             <span></span>
         </div>
     `;
@@ -3927,7 +3871,7 @@ function renderPrintPaper() {
     const sectionsHtml = paper.sections.map(section => {
         if (!section.questions.length) return '';
         const questionsHtml = section.questions.map((question, index) => {
-            const isMultiple = question.qType === 'multiple' || question.allowMultiCorrect;
+            const isMultiple = (question.correctIndexes || [question.correctIndex]).length > 1;
             const optionsHtml = question.options.map((option, optionIndex) => {
                 const prefix = isMultiple ? '☐ ' : '';
                 return `
@@ -4541,7 +4485,6 @@ function initImportQuestionsModal() {
                 touchedSections.push(section);
             }
 
-            let allowMultiCorrect = false;
             let correctIndexes = [];
             let correctIndex = 0;
 
@@ -4549,18 +4492,17 @@ function initImportQuestionsModal() {
             const matchedLetters = rawCorrect.match(/[A-D]/g);
             if (matchedLetters && matchedLetters.length > 0) {
                 correctIndexes = matchedLetters.map(letter => LABELS.indexOf(letter)).filter(idx => idx >= 0);
-                if (correctIndexes.length > 1) {
-                    allowMultiCorrect = true;
-                }
-                correctIndex = correctIndexes[0] || 0;
+                correctIndexes = [...new Set(correctIndexes)].sort((a, b) => a - b);
+                correctIndex = correctIndexes.length > 0 ? correctIndexes[0] : 0;
             } else {
                 correctIndex = 0;
                 correctIndexes = [0];
             }
 
             const question = newQuestion(row.question, row.options, correctIndex);
-            question.allowMultiCorrect = allowMultiCorrect;
             question.correctIndexes = correctIndexes;
+            question.allowMultiCorrect = correctIndexes.length > 1;
+            question.qType = correctIndexes.length > 1 ? 'multiple' : 'single';
             question.chapter = row.chapter || '';
             question.topic = row.topic || '';
             question.subtopic = row.subtopic || '';
@@ -6671,7 +6613,7 @@ function exportQuestionsCsv() {
                 plainText(question.options[1]?.text || ''),
                 plainText(question.options[2]?.text || ''),
                 plainText(question.options[3]?.text || ''),
-                getAnswerKeyLabel(question),
+                getAnswerKeyLabel(question).replace(/\s+/g, ''),
                 question.chapter || '',
                 question.topic || '',
                 question.subtopic || '',
@@ -6690,7 +6632,7 @@ function exportAnswerKeyCsv() {
     paper.sections.forEach(section => {
         section.questions.forEach(question => {
             number += 1;
-            rows.push([section.name, number, getAnswerKeyLabel(question)]);
+            rows.push([section.name, number, getAnswerKeyLabel(question).replace(/\s+/g, '')]);
         });
     });
     downloadBlob(new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }), `${fileName(paper.title)}_answer_key.csv`);
@@ -7947,7 +7889,7 @@ function buildWordHtml(paper) {
         questionBlocks.push(`<h2>${esc(section.name)}</h2>`);
         section.questions.forEach(question => {
             globalIndex += 1;
-            const isMultiple = question.qType === 'multiple' || question.allowMultiCorrect;
+            const isMultiple = (question.correctIndexes || [question.correctIndex]).length > 1;
             questionBlocks.push(`
                 <div class="question">
                     <p><b>${globalIndex})</b> ${isMultiple ? '<b>(Question Type: Multiple Correct)</b> ' : ''}${formatForWord(question.text)}</p>
@@ -8000,6 +7942,8 @@ function buildWordHtml(paper) {
 }
 
 function optionsForWord(question) {
+    const isMultiple = (question.correctIndexes || [question.correctIndex]).length > 1;
+    const prefix = isMultiple ? '☐ ' : '';
     const rows = question.layout === 'row'
         ? [[0, 1, 2, 3]]
         : question.layout === 'grid2'
@@ -8009,7 +7953,7 @@ function optionsForWord(question) {
         <table class="options">
             ${rows.map(row => `
                 <tr>
-                    ${row.map(index => `<td><b>${LABELS[index]}.</b> ${formatForWord(question.options[index]?.text || '')}</td>`).join('')}
+                    ${row.map(index => `<td><b>${prefix}${LABELS[index]}.</b> ${formatForWord(question.options[index]?.text || '')}</td>`).join('')}
                 </tr>
             `).join('')}
         </table>
