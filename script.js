@@ -4587,7 +4587,25 @@ function buildImportQuestionsPrompt(values) {
 "Mathematics","Degree measure of a circle is ___ degrees","90","180","270","360","D"
 "Mathematics","Which of the following are prime numbers?","2","3","4","5","A,B,D"
 
-Extract ALL questions from the whole PDF and return them in the same format. Do not skip or create questions. Questions can have either a single correct answer (e.g. "D") or multiple correct answers (e.g. "A,B,D"). Return multiple correct options as a comma-separated list of alphabetical option letters.`;
+Extract ALL questions from the whole PDF and return them in the same format. Do not skip or create questions.
+
+Questions can have either:
+- a single correct answer, for example "D"
+- multiple correct answers, for example "A,B,D"
+
+If a question has only ONE correct answer, return only that option letter:
+"D"
+
+If a question has MORE THAN ONE correct answer, return ALL correct option letters as a comma-separated list in alphabetical order:
+"A,B"
+"A,C"
+"B,D"
+"A,B,D"
+
+Do NOT force multiple-correct questions into a single answer.
+Do NOT force single-correct questions into multiple answers.
+
+Return multiple correct options as a comma-separated list of alphabetical option letters.`;
 }
 
 function getUploadedFilename() {
