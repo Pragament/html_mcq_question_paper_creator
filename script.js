@@ -5,6 +5,25 @@ const UI_CONFIG = {
     showDuplicate: false
 };
 const LABELS = ['A', 'B', 'C', 'D'];
+function getAnswerKeyLabel(question) {
+    const indexes = question.correctIndexes || [question.correctIndex];
+    if (indexes.length === 0) return 'None';
+    return indexes.map(idx => LABELS[idx]).sort().join(', ');
+}
+function validateStudentAnswer(question, selectedOptions) {
+    const correctLetters = (question.correctIndexes || [question.correctIndex]).map(idx => LABELS[idx]);
+    const studentLetters = selectedOptions.map(opt => {
+        if (typeof opt === 'number') return LABELS[opt];
+        return String(opt).toUpperCase().trim();
+    });
+
+    if (correctLetters.length !== studentLetters.length) return false;
+
+    const allCorrectSelected = correctLetters.every(letter => studentLetters.includes(letter));
+    const noIncorrectSelected = studentLetters.every(letter => correctLetters.includes(letter));
+
+    return allCorrectSelected && noIncorrectSelected;
+}
 const LAYOUTS = [
     { id: 'row', label: '1x4' },
     { id: 'grid2', label: '2x2' },
@@ -238,6 +257,14 @@ function normalize() {
                 }
                 question.options = question.options.slice(0, 4);
                 if (!Number.isInteger(question.correctIndex)) question.correctIndex = 0;
+                if (!Array.isArray(question.correctIndexes)) {
+                    question.correctIndexes = [question.correctIndex];
+                }
+                question.correctIndexes = question.correctIndexes
+                    .map(Number)
+                    .filter(idx => idx >= 0 && idx < 4)
+                    .sort((a, b) => a - b);
+                question.correctIndex = question.correctIndexes.length > 0 ? question.correctIndexes[0] : 0;
             });
         });
     });
@@ -295,6 +322,8 @@ function newQuestion(text = '', options = ['', '', '', ''], correctIndex = 0) {
         text,
         layout: 'row',
         correctIndex,
+        correctIndexes: [correctIndex],
+        allowMultiCorrect: false,
         marks: 1,
         chapter: '',
         topic: '',
@@ -1092,8 +1121,23 @@ function renderWorkbench() {
 
     els.workbench.querySelectorAll('[data-correct]').forEach(input => {
         input.addEventListener('change', () => {
-            findQuestion(input.dataset.qid).correctIndex = Number(input.dataset.correct);
-            render();
+            const qid = input.dataset.qid;
+            const correctIndex = Number(input.dataset.correct);
+            const question = findQuestion(qid);
+            if (question) {
+                let indexes = question.correctIndexes || [question.correctIndex];
+                if (input.checked) {
+                    if (!indexes.includes(correctIndex)) {
+                        indexes.push(correctIndex);
+                    }
+                } else {
+                    indexes = indexes.filter(idx => idx !== correctIndex);
+                }
+                question.correctIndexes = indexes.sort((a, b) => a - b);
+                question.correctIndex = indexes.length > 0 ? indexes[0] : 0;
+                render();
+                save();
+            }
         });
     });
 
@@ -1155,6 +1199,12 @@ function renderWorkbench() {
 }
 
 function questionCard(question, index) {
+    const correctCount = (question.correctIndexes || [question.correctIndex]).length;
+    let validationMsg = '';
+    if (correctCount === 0) {
+        validationMsg = '⚠️ Please select at least one correct option.';
+    }
+
     return `
         <article class="question-card" data-card="${question.id}">
             <div class="question-head">
@@ -1168,6 +1218,9 @@ function questionCard(question, index) {
                         placeholder: 'Type question. Paste images here. Use math like \\(x^2\\).'
                     })}
                     <div class="paste-hint">Paste images directly at the cursor. Use simple markdown for bold, italics, and math.</div>
+                    <div class="q-type-container" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                        <span class="paste-hint" style="font-style: italic;">Select the correct answer(s)</span>
+                    </div>
                 </div>
                 <div class="question-tools-column">
                     <div class="question-tools">
@@ -1186,8 +1239,11 @@ function questionCard(question, index) {
             <div class="options-grid ${question.layout}">
                 ${question.options.map((option, optionIndex) => optionCard(question, option, optionIndex)).join('')}
             </div>
-            <div class="layout-row">
-                <span class="paste-hint">Answer: ${LABELS[question.correctIndex] || 'A'}</span>
+            <div class="layout-row" style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span class="paste-hint">Answer: ${getAnswerKeyLabel(question)}</span>
+                    ${validationMsg ? `<span class="question-validation-error" style="color: #ef4444; font-size: 12px; font-weight: 500;">${validationMsg}</span>` : ''}
+                </div>
             </div>
             <div class="question-metadata-row">
                 <div class="field" style="position: relative;">
@@ -1211,8 +1267,10 @@ function questionCard(question, index) {
 }
 
 function optionCard(question, option, optionIndex) {
+    const isCorrect = (question.correctIndexes || [question.correctIndex]).includes(optionIndex);
+
     return `
-        <div class="option-card ${question.correctIndex === optionIndex ? 'correct' : ''}">
+        <div class="option-card ${isCorrect ? 'correct' : ''}">
             <span class="option-label">${LABELS[optionIndex]}.</span>
             <div>
                 ${richEditor({
@@ -1224,7 +1282,7 @@ function optionCard(question, option, optionIndex) {
                     placeholder: `Option ${LABELS[optionIndex]}`
                 })}
             </div>
-            <input class="correct-radio" type="radio" name="correct-${question.id}" ${question.correctIndex === optionIndex ? 'checked' : ''} data-correct="${optionIndex}" data-qid="${question.id}" title="Correct answer" />
+            <input class="correct-checkbox" type="checkbox" name="correct-${question.id}" ${isCorrect ? 'checked' : ''} data-correct="${optionIndex}" data-qid="${question.id}" title="Correct answer" />
             <span></span>
         </div>
     `;
@@ -3430,7 +3488,7 @@ function renderReuseResults() {
     results.innerHTML = matches.length ? matches.map((item, index) => `
         <button class="reuse-item" data-reuse-index="${index}">
             <strong>${esc(plainText(item.question.text).slice(0, 90) || 'Untitled question')}</strong>
-            <span>${esc(item.paperTitle)} / ${esc(item.sectionName)} · Answer ${LABELS[item.question.correctIndex] || 'A'}</span>
+            <span>${esc(item.paperTitle)} / ${esc(item.sectionName)} · Answer ${getAnswerKeyLabel(item.question)}</span>
         </button>
     `).join('') : '<div class="reuse-empty">No matching saved questions.</div>';
     results.querySelectorAll('[data-reuse-index]').forEach(btn => {
@@ -3509,6 +3567,8 @@ function applyQuestionSuggestion(qid, suggestion) {
     question.text = copy.text;
     question.options = copy.options;
     question.correctIndex = copy.correctIndex;
+    question.correctIndexes = copy.correctIndexes || [copy.correctIndex];
+    question.allowMultiCorrect = !!copy.allowMultiCorrect;
     question.layout = copy.layout;
     render();
     toast('Question filled from saved paper');
@@ -3782,7 +3842,7 @@ function renderTeacherPanel() {
             <h3>Answer Key</h3>
             <div class="answer-key">
                 ${questions.length ? questions.map((q, i) => `
-                    <div class="answer-key-row"><span>${i + 1}</span><b>${LABELS[q.correctIndex] || 'A'}</b></div>
+                    <div class="answer-key-row"><span>${i + 1}</span><b>${getAnswerKeyLabel(q)}</b></div>
                 `).join('') : '<span class="paste-hint">No questions yet.</span>'}
             </div>
         </div>
@@ -3811,10 +3871,12 @@ function renderPrintPaper() {
     const sectionsHtml = paper.sections.map(section => {
         if (!section.questions.length) return '';
         const questionsHtml = section.questions.map((question, index) => {
+            const isMultiple = (question.correctIndexes || [question.correctIndex]).length > 1;
             const optionsHtml = question.options.map((option, optionIndex) => {
+                const prefix = isMultiple ? '☐ ' : '';
                 return `
                     <div class="print-option">
-                        <span class="print-option-label">${LABELS[optionIndex]}.</span>
+                        <span class="print-option-label">${prefix}${LABELS[optionIndex]}.</span>
                         <div class="print-option-text">${markdownToVisualHtml(option.text)}</div>
                     </div>
                 `;
@@ -3825,6 +3887,7 @@ function renderPrintPaper() {
                     <div class="print-question-header">
                         <span class="print-q-number">${index + 1}.</span>
                         <div class="print-q-text">
+                            ${isMultiple ? '<div style="font-weight: bold; font-size: 11px; margin-bottom: 2px; color: #1e293b;">(Question Type: Multiple Correct)</div>' : ''}
                             ${markdownToVisualHtml(question.text)}
                             ${(question.chapter || question.topic || question.subtopic) ? `
                                 <div class="print-question-metadata" style="font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic;">
@@ -4422,8 +4485,24 @@ function initImportQuestionsModal() {
                 touchedSections.push(section);
             }
 
-            const correctIndex = LABELS.indexOf(row.correctOption);
-            const question = newQuestion(row.question, row.options, correctIndex >= 0 ? correctIndex : 0);
+            let correctIndexes = [];
+            let correctIndex = 0;
+
+            const rawCorrect = String(row.correctOption || 'A').toUpperCase().trim();
+            const matchedLetters = rawCorrect.match(/[A-D]/g);
+            if (matchedLetters && matchedLetters.length > 0) {
+                correctIndexes = matchedLetters.map(letter => LABELS.indexOf(letter)).filter(idx => idx >= 0);
+                correctIndexes = [...new Set(correctIndexes)].sort((a, b) => a - b);
+                correctIndex = correctIndexes.length > 0 ? correctIndexes[0] : 0;
+            } else {
+                correctIndex = 0;
+                correctIndexes = [0];
+            }
+
+            const question = newQuestion(row.question, row.options, correctIndex);
+            question.correctIndexes = correctIndexes;
+            question.allowMultiCorrect = correctIndexes.length > 1;
+            question.qType = correctIndexes.length > 1 ? 'multiple' : 'single';
             question.chapter = row.chapter || '';
             question.topic = row.topic || '';
             question.subtopic = row.subtopic || '';
@@ -4502,49 +4581,31 @@ function getImportPromptValues() {
 }
 
 function buildImportQuestionsPrompt(values) {
-    const topicLine = values.topic ? `Topic/Chapter: ${values.topic}\n` : '';
-    return `Create a multiple-choice question paper.
-
-Subject: ${values.subject}
-Class/Grade: ${values.className}
-${topicLine}Number of Questions: ${values.questionCount}
-Difficulty: ${values.difficulty}
-
-Generate exactly ${values.questionCount} multiple-choice questions.
-
-Return ONLY valid CSV.
-
-Use exactly these columns and this exact order:
-
-"section","question","option1","option2","option3","option4","correct_option"
-
-Example:
+    return `Convert the entire uploaded PDF into CSV text in this exact format:
 
 "section","question","option1","option2","option3","option4","correct_option"
 "Mathematics","Degree measure of a circle is ___ degrees","90","180","270","360","D"
-"Mathematics","If a line intersects a circle at two distinct points, then it is called","Secant","Tangent","Median","Altitude","A"
+"Mathematics","Which of the following are prime numbers?","2","3","4","5","A,B,D"
 
-Rules:
-1. Every question must have exactly 4 answer options.
-2. correct_option must contain only A, B, C, or D.
-3. A = option1, B = option2, C = option3, D = option4.
-4. Put the subject or appropriate section name in the section column.
-5. Do not include numbering outside the CSV.
-6. Do not include explanations or answers outside the CSV.
-7. Properly escape commas and quotation marks according to CSV rules.
-8. Do not wrap the response in Markdown code fences.
-9. Output only the CSV header followed by the question rows.
-10. Make the questions appropriate for the requested class/grade, subject, topic, and difficulty.
-11. Keep the wording clear and suitable for school students.
-12. Avoid duplicate or near-duplicate questions.
-13. Ensure each question has a single unambiguous correct answer.
-14. Prefer practical, textbook-style wording over trick questions.
-15. Vary the wording and structure of the questions where possible.
-16. Keep all section names consistent for the same topic.
-17. Do not add any extra commentary before or after the CSV.
-18. If a topic is provided, keep most questions focused on that topic.
-19. If topic is blank, generate a balanced set of questions for the subject.
-20. Double-check that the CSV rows match the header exactly.`;
+Extract ALL questions from the whole PDF and return them in the same format. Do not skip or create questions.
+
+Questions can have either:
+- a single correct answer, for example "D"
+- multiple correct answers, for example "A,B,D"
+
+If a question has only ONE correct answer, return only that option letter:
+"D"
+
+If a question has MORE THAN ONE correct answer, return ALL correct option letters as a comma-separated list in alphabetical order:
+"A,B"
+"A,C"
+"B,D"
+"A,B,D"
+
+Do NOT force multiple-correct questions into a single answer.
+Do NOT force single-correct questions into multiple answers.
+
+Return multiple correct options as a comma-separated list of alphabetical option letters.`;
 }
 
 function getUploadedFilename() {
@@ -4914,7 +4975,11 @@ function parseImportQuestionsCsv(csvText) {
         if (!option2) rowValidationErrors.push('option2 is missing.');
         if (!option3) rowValidationErrors.push('option3 is missing.');
         if (!option4) rowValidationErrors.push('option4 is missing.');
-        if (!['A', 'B', 'C', 'D'].includes(correctOption)) rowValidationErrors.push('correct_option must be A, B, C, or D.');
+        const matchedLetters = correctOption.match(/[A-D]/g);
+        const hasInvalidLetters = /[E-Z]/i.test(correctOption);
+        if (!matchedLetters || matchedLetters.length === 0 || hasInvalidLetters) {
+            rowValidationErrors.push('correct_option must be combinations of A, B, C, or D.');
+        }
 
         if (rowValidationErrors.length) {
             rowErrors.push({ rowNumber, errors: rowValidationErrors });
@@ -6566,7 +6631,7 @@ function exportQuestionsCsv() {
                 plainText(question.options[1]?.text || ''),
                 plainText(question.options[2]?.text || ''),
                 plainText(question.options[3]?.text || ''),
-                LABELS[question.correctIndex] || 'A',
+                getAnswerKeyLabel(question).replace(/\s+/g, ''),
                 question.chapter || '',
                 question.topic || '',
                 question.subtopic || '',
@@ -6585,7 +6650,7 @@ function exportAnswerKeyCsv() {
     paper.sections.forEach(section => {
         section.questions.forEach(question => {
             number += 1;
-            rows.push([section.name, number, LABELS[question.correctIndex] || 'A']);
+            rows.push([section.name, number, getAnswerKeyLabel(question).replace(/\s+/g, '')]);
         });
     });
     downloadBlob(new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }), `${fileName(paper.title)}_answer_key.csv`);
@@ -7226,7 +7291,7 @@ function buildDocumentXml(paper, media) {
 
             const answerEntries = section.questions.map(question => {
                 answerQuestionNumber += 1;
-                const answerLabel = LABELS[question.correctIndex] || 'A';
+                const answerLabel = getAnswerKeyLabel(question);
                 return `${answerQuestionNumber} - ${answerLabel}`;
             });
 
@@ -7842,9 +7907,10 @@ function buildWordHtml(paper) {
         questionBlocks.push(`<h2>${esc(section.name)}</h2>`);
         section.questions.forEach(question => {
             globalIndex += 1;
+            const isMultiple = (question.correctIndexes || [question.correctIndex]).length > 1;
             questionBlocks.push(`
                 <div class="question">
-                    <p><b>${globalIndex})</b> ${formatForWord(question.text)}</p>
+                    <p><b>${globalIndex})</b> ${isMultiple ? '<b>(Question Type: Multiple Correct)</b> ' : ''}${formatForWord(question.text)}</p>
                     ${(question.chapter || question.topic || question.subtopic) ? `
                         <p style="font-size: 10pt; color: #666666; font-style: italic; margin-top: 2pt; margin-bottom: 2pt; margin-left: 18pt;">
                             [Chapter: ${esc(question.chapter || '-')} | Topic: ${esc(question.topic || '-')} | Subtopic: ${esc(question.subtopic || '-')}]
@@ -7855,7 +7921,7 @@ function buildWordHtml(paper) {
             `);
         });
     });
-    const key = allQuestions(paper).map((q, i) => `${i + 1}. ${LABELS[q.correctIndex] || 'A'}`).join('&nbsp;&nbsp;&nbsp;');
+    const key = allQuestions(paper).map((q, i) => `${i + 1}. ${getAnswerKeyLabel(q)}`).join('&nbsp;&nbsp;&nbsp;');
     return `
         <!DOCTYPE html>
         <html>
@@ -7894,6 +7960,8 @@ function buildWordHtml(paper) {
 }
 
 function optionsForWord(question) {
+    const isMultiple = (question.correctIndexes || [question.correctIndex]).length > 1;
+    const prefix = isMultiple ? '☐ ' : '';
     const rows = question.layout === 'row'
         ? [[0, 1, 2, 3]]
         : question.layout === 'grid2'
@@ -7903,7 +7971,7 @@ function optionsForWord(question) {
         <table class="options">
             ${rows.map(row => `
                 <tr>
-                    ${row.map(index => `<td><b>${LABELS[index]}.</b> ${formatForWord(question.options[index]?.text || '')}</td>`).join('')}
+                    ${row.map(index => `<td><b>${prefix}${LABELS[index]}.</b> ${formatForWord(question.options[index]?.text || '')}</td>`).join('')}
                 </tr>
             `).join('')}
         </table>

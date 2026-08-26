@@ -779,7 +779,8 @@ button {
     background: #fff;
 }
 
-.correct-radio {
+.correct-radio,
+.correct-checkbox {
     width: 18px;
     height: 18px;
     accent-color: var(--success);
@@ -2169,7 +2170,9 @@ div[class*="ML__keyboard"] {
 
     /* 2. Hide answer selection controls (radio buttons and their neighbor spans) */
     .correct-radio,
-    .correct-radio + span {
+    .correct-radio + span,
+    .correct-checkbox,
+    .correct-checkbox + span {
         display: none !important;
     }
 
