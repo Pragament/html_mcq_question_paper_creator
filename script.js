@@ -121,7 +121,12 @@ let state = {
     filterSearchQuery: '',
     filterSelectedTags: [],
     isHoveringLogoArea: false,
+    currentUser: null,
 };
+
+let currentUser = null;
+window.state = state;
+window.currentUser = currentUser;
 
 let cachedUniqueTagsStr = '';
 
@@ -144,6 +149,7 @@ document.getElementById('questionsCsvBtn').addEventListener('click', exportQuest
 document.getElementById('answerCsvBtn').addEventListener('click', exportAnswerKeyCsv);
 document.getElementById('printBtn').addEventListener('click', () => window.print());
 document.getElementById('wordBtn').addEventListener('click', exportWord);
+document.getElementById('saveQbBtn')?.addEventListener('click', () => savePaperToQuestionBank());
 els.fileInput.addEventListener('change', importBackup);
 els.paperSearchInput.addEventListener('input', e => {
     state.filterSearchQuery = e.target.value;
@@ -206,7 +212,852 @@ initLogoContextMenu();
 initAdvancedEditorModal();
 initTableContextMenu();
 initTableFloatingToolbar();
+initAuthUI();
 render();
+
+function updateAuthUI() {
+    const loginBtn = document.getElementById('loginBtn');
+    const userProfile = document.getElementById('userProfile');
+    const userDisplayName = document.getElementById('userDisplayName');
+
+    if (!loginBtn || !userProfile || !userDisplayName) return;
+
+    if (currentUser) {
+        loginBtn.hidden = true;
+        userProfile.hidden = false;
+        const name = currentUser.displayName || currentUser.email || 'Signed in';
+        userDisplayName.textContent = name;
+        userDisplayName.title = currentUser.email ? `${name} (${currentUser.email})` : name;
+    } else {
+        loginBtn.hidden = false;
+        userProfile.hidden = true;
+        userDisplayName.textContent = '';
+        userDisplayName.title = '';
+    }
+}
+
+function handleAuthUserChange(user) {
+    if (user) {
+        currentUser = {
+            uid: user.uid,
+            displayName: user.displayName || user.email || 'Teacher',
+            email: user.email || '',
+        };
+        state.currentUser = currentUser;
+    } else {
+        currentUser = null;
+        state.currentUser = null;
+    }
+    window.currentUser = currentUser;
+    updateAuthUI();
+}
+window.onFirebaseAuthChange = handleAuthUserChange;
+
+async function ensureFirebaseBridge() {
+    if (window.firebaseBridge) return window.firebaseBridge;
+    try {
+        const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+        const {
+            getAuth,
+            GoogleAuthProvider,
+            onAuthStateChanged,
+            signInWithPopup,
+            signInWithRedirect,
+            getRedirectResult,
+            signInWithEmailAndPassword,
+            signOut
+        } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js');
+        const {
+            addDoc,
+            collection,
+            doc,
+            getFirestore,
+            serverTimestamp,
+            updateDoc,
+            writeBatch
+        } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+
+        const firebaseConfig = {
+            apiKey: 'AIzaSyAYlezFn0tSSQHA-vRnJeBfJ-Om1YlDghk',
+            authDomain: 'eschool-dev-4c6b4.firebaseapp.com',
+            projectId: 'eschool-dev-4c6b4',
+            storageBucket: 'eschool-dev-4c6b4.firebasestorage.app',
+            messagingSenderId: '875648503944',
+            appId: '1:875648503944:web:ea0d256e7aa977496f0f3d',
+            measurementId: 'G-CF82P2M36M'
+        };
+
+        const COLLECTIONS = {
+            taxonomy: 'qb_taxonomy_v1',
+            questions: 'qb_questions_v1',
+            reactions: 'qb_reactions_v1',
+            lists: 'qb_lists_v1'
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const googleProvider = new GoogleAuthProvider();
+
+        const internalEnsureTaxonomy = async (labels) => {
+            if (!auth.currentUser) {
+                throw new Error('User must be signed in to create or update taxonomy in Firestore.');
+            }
+            const path = buildTaxonomyPath(labels);
+            const batch = writeBatch(db);
+            path.nodes.forEach(node => {
+                batch.set(doc(db, COLLECTIONS.taxonomy, node.id), {
+                    ...node,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            });
+            await batch.commit();
+            return path.ids;
+        };
+
+        const internalSaveQuestion = async (question, context = {}) => {
+            const user = auth.currentUser;
+            if (!user || !user.uid) {
+                const msg = 'Please sign in with Google before saving to the Question Bank.';
+                toast(msg);
+                return { success: false, error: msg };
+            }
+
+            const className = String(question.className || context.className || getActivePaper()?.meta?.className || '').trim();
+            const subjectName = String(question.subject || question.subjectName || context.subjectName || context.subject || getActivePaper()?.meta?.subject || '').trim();
+            const chapterName = String(question.chapter || question.chapterName || context.chapterName || context.chapter || '').trim();
+            const topicName = String(question.topic || question.topicName || context.topicName || context.topic || '').trim();
+
+            const taxonomyIds = await internalEnsureTaxonomy({ className, subjectName, chapterName, topicName });
+
+                const correctIndexes = Array.isArray(question.correctIndexes) && question.correctIndexes.length > 0
+                    ? question.correctIndexes
+                    : (Number.isInteger(question.correctIndex) && question.correctIndex >= 0 ? [question.correctIndex] : []);
+
+            const optionsPayload = question.options.map((opt, index) => ({
+                html: opt && opt.html !== undefined ? opt.html : (opt && opt.text !== undefined ? opt.text : String(opt || '')),
+                correct: Boolean(correctIndexes.includes(index) || (opt && opt.correct === true))
+            }));
+
+            const payload = {
+                type: 'mcq',
+                classId: taxonomyIds.classId,
+                subjectId: taxonomyIds.subjectId,
+                chapterId: taxonomyIds.chapterId,
+                topicId: taxonomyIds.topicId,
+                status: 'draft',
+                promptHtml: question.promptHtml !== undefined ? question.promptHtml : (question.text !== undefined ? question.text : ''),
+                options: optionsPayload,
+                authorUid: user.uid,
+                authorName: user.displayName || user.email || 'Teacher',
+                updatedAt: serverTimestamp()
+            };
+
+            let docId = question.firestoreQuestionId;
+            let isUpdate = false;
+
+            if (docId) {
+                isUpdate = true;
+                await updateDoc(doc(db, COLLECTIONS.questions, docId), payload);
+                toast('Question updated in Question Bank.');
+            } else {
+                payload.createdAt = serverTimestamp();
+                const docRef = await addDoc(collection(db, COLLECTIONS.questions), payload);
+                docId = docRef.id;
+                question.firestoreQuestionId = docId;
+                save();
+                toast('Question saved to Question Bank.');
+            }
+
+            return {
+                success: true,
+                id: docId,
+                isUpdate,
+                payload,
+                taxonomyIds
+            };
+        };
+
+        window.firebaseApp = app;
+        window.firebaseAuth = auth;
+        window.firebaseDb = db;
+        window.firebaseBridge = {
+            app,
+            auth,
+            db,
+            COLLECTIONS,
+            loginWithGoogle: () => {
+                if (typeof save === 'function') save();
+                return signInWithRedirect(auth, googleProvider);
+            },
+            loginWithGoogleRedirect: () => {
+                if (typeof save === 'function') save();
+                return signInWithRedirect(auth, googleProvider);
+            },
+            loginWithGooglePopup: () => signInWithPopup(auth, googleProvider),
+            loginWithEmail: (email, pass) => signInWithEmailAndPassword(auth, email, pass),
+            loginAsTestTeacher: () => signInWithEmailAndPassword(auth, 'testteacher@eschool.edu', 'Teacher123!'),
+            logoutUser: () => signOut(auth),
+            observeAuthState: (cb) => onAuthStateChanged(auth, cb),
+            getRedirectResult: () => getRedirectResult(auth),
+            getCurrentUser: () => auth.currentUser,
+            normalizeTaxonomyLabel,
+            slugify,
+            taxonomyId,
+            buildTaxonomyPath,
+            ensureTaxonomyPath: internalEnsureTaxonomy,
+            saveQuestionToQuestionBank: internalSaveQuestion
+        };
+
+        getRedirectResult(auth).then((result) => {
+            if (result && result.user) {
+                handleAuthUserChange(result.user);
+                toast(`Signed in as ${result.user.displayName || result.user.email}`);
+            }
+        }).catch((err) => {
+            console.error('Redirect sign-in error in fallback bridge:', err);
+        });
+
+        onAuthStateChanged(auth, (user) => {
+            handleAuthUserChange(user);
+        });
+
+        return window.firebaseBridge;
+    } catch (e) {
+        console.warn('Firebase initialization fallback error:', e);
+        return null;
+    }
+}
+
+async function handleGoogleSignIn() {
+    const loginBtn = document.getElementById('loginBtn');
+    if (loginBtn) loginBtn.disabled = true;
+
+    let bridge = window.firebaseBridge;
+    if (!bridge) {
+        bridge = await ensureFirebaseBridge();
+    }
+
+    if (!bridge) {
+        toast('Authentication service could not be initialized. Please check connection.');
+        if (loginBtn) loginBtn.disabled = false;
+        return;
+    }
+
+    try {
+        if (typeof save === 'function') save();
+        const result = await bridge.loginWithGoogle();
+        if (result && result.user) {
+            const user = result.user;
+            handleAuthUserChange(user);
+            toast(`Signed in as ${user.displayName || user.email}`);
+        }
+    } catch (err) {
+        console.error('Authentication error:', err);
+        if (err.code === 'auth/popup-closed-by-user') {
+            toast('Sign-in cancelled (popup was closed).');
+        } else if (err.code === 'auth/popup-blocked') {
+            toast('Popup blocked by browser. Please allow popups for this site.');
+        } else if (err.code === 'auth/cancelled-popup-request') {
+            toast('Another sign-in window is already open.');
+        } else if (err.code === 'auth/network-request-failed') {
+            toast('Network error during sign-in. Check your connection.');
+        } else if (err.code === 'auth/unauthorized-domain') {
+            toast('This domain is not authorized in Firebase Auth settings.');
+        } else {
+            toast(`Sign-in failed: ${err.message || 'Unknown error'}`);
+        }
+    } finally {
+        if (loginBtn) loginBtn.disabled = false;
+    }
+}
+
+async function handleSignOut() {
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) logoutBtn.disabled = true;
+
+    try {
+        let bridge = window.firebaseBridge;
+        if (!bridge) {
+            bridge = await ensureFirebaseBridge();
+        }
+        if (bridge) {
+            await bridge.logoutUser();
+        }
+        handleAuthUserChange(null);
+        toast('Signed out successfully.');
+    } catch (err) {
+        console.error('Sign-out error:', err);
+        toast(`Sign-out failed: ${err.message || 'Unknown error'}`);
+    } finally {
+        if (logoutBtn) logoutBtn.disabled = false;
+    }
+}
+
+async function handleEmailSignIn(email, password) {
+    let bridge = window.firebaseBridge;
+    if (!bridge) {
+        bridge = await ensureFirebaseBridge();
+    }
+    if (!bridge) {
+        toast('Authentication service could not be initialized. Please check connection.');
+        return;
+    }
+    try {
+        if (typeof save === 'function') save();
+        const cred = await bridge.loginWithEmail(email, password);
+        if (cred && cred.user) {
+            handleAuthUserChange(cred.user);
+            toast(`Signed in as ${cred.user.displayName || cred.user.email}`);
+            const authModal = document.getElementById('authModal');
+            if (authModal) authModal.hidden = true;
+        }
+    } catch (err) {
+        console.error('Email sign-in error:', err);
+        toast(`Sign-in failed: ${err.message || 'Unknown error'}`);
+    }
+}
+
+async function handleTestTeacherSignIn() {
+    return handleEmailSignIn('testteacher@eschool.edu', 'Teacher123!');
+}
+
+function initAuthUI() {
+    const loginBtn = document.getElementById('loginBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const authModal = document.getElementById('authModal');
+    const closeAuthModalBtn = document.getElementById('closeAuthModalBtn');
+    const authTestTeacherBtn = document.getElementById('authTestTeacherBtn');
+    const authEmailSubmitBtn = document.getElementById('authEmailSubmitBtn');
+    const authGoogleBtn = document.getElementById('authGoogleBtn');
+
+    if (loginBtn) {
+        loginBtn.addEventListener('click', () => {
+            if (authModal) {
+                authModal.hidden = false;
+            } else {
+                handleGoogleSignIn();
+            }
+        });
+    }
+
+    if (closeAuthModalBtn && authModal) {
+        closeAuthModalBtn.addEventListener('click', () => {
+            authModal.hidden = true;
+        });
+    }
+
+    if (authModal) {
+        authModal.addEventListener('click', (e) => {
+            if (e.target === authModal) authModal.hidden = true;
+        });
+    }
+
+    if (authTestTeacherBtn) {
+        authTestTeacherBtn.addEventListener('click', async () => {
+            authTestTeacherBtn.disabled = true;
+            try {
+                await handleTestTeacherSignIn();
+            } finally {
+                authTestTeacherBtn.disabled = false;
+            }
+        });
+    }
+
+    if (authEmailSubmitBtn) {
+        authEmailSubmitBtn.addEventListener('click', async () => {
+            const email = document.getElementById('authEmailInput')?.value?.trim();
+            const password = document.getElementById('authPasswordInput')?.value;
+            if (!email || !password) {
+                toast('Please enter both email and password.');
+                return;
+            }
+            authEmailSubmitBtn.disabled = true;
+            try {
+                await handleEmailSignIn(email, password);
+            } finally {
+                authEmailSubmitBtn.disabled = false;
+            }
+        });
+    }
+
+    if (authGoogleBtn) {
+        authGoogleBtn.addEventListener('click', () => {
+            if (authModal) authModal.hidden = true;
+            handleGoogleSignIn();
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleSignOut);
+    }
+
+    window.addEventListener('firebase-auth-change', (e) => {
+        handleAuthUserChange(e.detail ? e.detail.user : null);
+    });
+
+    window.addEventListener('firebase-bridge-ready', (e) => {
+        const bridge = e.detail || window.firebaseBridge;
+        if (bridge && typeof bridge.getCurrentUser === 'function') {
+            const u = bridge.getCurrentUser();
+            if (u) handleAuthUserChange(u);
+        }
+    });
+
+    if (window.firebaseBridge && typeof window.firebaseBridge.getCurrentUser === 'function') {
+        const u = window.firebaseBridge.getCurrentUser();
+        if (u) handleAuthUserChange(u);
+    }
+
+    updateAuthUI();
+}
+
+function normalizeTaxonomyLabel(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function slugify(value) {
+    const slug = normalizeTaxonomyLabel(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    return slug || 'untitled';
+}
+
+function taxonomyId(type, label, parentId = '') {
+    const prefix = { class: 'class', subject: 'subject', chapter: 'chapter', topic: 'topic' }[type] || type;
+    return `${parentId ? `${parentId}__` : ''}${prefix}_${slugify(label)}`;
+}
+
+function buildTaxonomyPath(labels = {}) {
+    const classLabel = normalizeTaxonomyLabel(labels.className || labels.class);
+    const subjectLabel = normalizeTaxonomyLabel(labels.subjectName || labels.subject);
+    const chapterLabel = normalizeTaxonomyLabel(labels.chapterName || labels.chapter);
+    const topicLabel = normalizeTaxonomyLabel(labels.topicName || labels.topic);
+
+    const classId = taxonomyId('class', classLabel);
+    const subjectId = taxonomyId('subject', subjectLabel, classId);
+    const chapterId = taxonomyId('chapter', chapterLabel, subjectId);
+    const topicId = taxonomyId('topic', topicLabel, chapterId);
+
+    return {
+        ids: { classId, subjectId, chapterId, topicId },
+        nodes: [
+            { id: classId, type: 'class', label: classLabel, parentId: '', classId },
+            { id: subjectId, type: 'subject', label: subjectLabel, parentId: classId, classId, subjectId },
+            { id: chapterId, type: 'chapter', label: chapterLabel, parentId: subjectId, classId, subjectId, chapterId },
+            { id: topicId, type: 'topic', label: topicLabel, parentId: chapterId, classId, subjectId, chapterId, topicId }
+        ]
+    };
+}
+
+async function ensureTaxonomyPath(labels = {}) {
+    if (window.firebaseBridge && typeof window.firebaseBridge.ensureTaxonomyPath === 'function') {
+        return await window.firebaseBridge.ensureTaxonomyPath(labels);
+    }
+    const bridge = await ensureFirebaseBridge();
+    if (bridge && typeof bridge.ensureTaxonomyPath === 'function') {
+        return await bridge.ensureTaxonomyPath(labels);
+    }
+    throw new Error('Firestore taxonomy service is not available.');
+}
+
+// Test-only helper to verify taxonomy path generation and creation without creating any qb_questions_v1 documents
+async function testTaxonomyIntegration(customLabels = null) {
+    const labels = customLabels || {
+        className: 'VIII',
+        subjectName: 'Mathematics',
+        chapterName: 'Real Numbers',
+        topicName: 'Rational Numbers'
+    };
+
+    const path = buildTaxonomyPath(labels);
+    let firestoreResult = null;
+
+    if (currentUser && window.firebaseBridge?.ensureTaxonomyPath) {
+        firestoreResult = await ensureTaxonomyPath(labels);
+    }
+
+    return {
+        labels,
+        ids: path.ids,
+        nodes: path.nodes,
+        firestoreResult,
+        verifiedNoQuestionCreated: true
+    };
+}
+
+window.normalizeTaxonomyLabel = normalizeTaxonomyLabel;
+window.slugify = slugify;
+window.taxonomyId = taxonomyId;
+window.buildTaxonomyPath = buildTaxonomyPath;
+window.ensureTaxonomyPath = ensureTaxonomyPath;
+window.testTaxonomyIntegration = testTaxonomyIntegration;
+
+async function saveQuestionToQuestionBank(question, context = {}) {
+    const user = (window.firebaseBridge && typeof window.firebaseBridge.getCurrentUser === 'function')
+        ? window.firebaseBridge.getCurrentUser()
+        : (currentUser || (state && state.currentUser));
+
+    if (!user || !user.uid) {
+        const msg = 'Please sign in with Google before saving to the Question Bank.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    if (!question || typeof question !== 'object') {
+        const msg = 'Unable to save question to Question Bank: Question data is missing.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    if (question.type && question.type !== 'mcq') {
+        const msg = 'Unable to save question to Question Bank: Question must be an MCQ.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    if (!Array.isArray(question.options) || question.options.length !== 4) {
+        const msg = 'Unable to save question to Question Bank: Question must have exactly four options.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    const correctIndexes = Array.isArray(question.correctIndexes) && question.correctIndexes.length > 0
+        ? question.correctIndexes
+        : (Number.isInteger(question.correctIndex) && question.correctIndex >= 0 ? [question.correctIndex] : []);
+    const hasCorrectOption = correctIndexes.length > 0 || question.options.some(opt => opt && opt.correct === true);
+    if (!hasCorrectOption) {
+        const msg = 'Unable to save question to Question Bank: Question must have at least one correct answer.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    const className = String(question.className || context.className || getActivePaper()?.meta?.className || '').trim();
+    if (!className) {
+        const msg = 'Unable to save question to Question Bank: Class is required.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    const subjectName = String(question.subject || question.subjectName || context.subjectName || context.subject || getActivePaper()?.meta?.subject || '').trim();
+    if (!subjectName) {
+        const msg = 'Unable to save question to Question Bank: Subject is required.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    const chapterName = String(question.chapter || question.chapterName || context.chapterName || context.chapter || '').trim();
+    const topicName = String(question.topic || question.topicName || context.topicName || context.topic || '').trim();
+    if (!chapterName || !topicName) {
+        const msg = 'Unable to save question to Question Bank: Chapter and topic are required.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    if (window.firebaseBridge && typeof window.firebaseBridge.saveQuestionToQuestionBank === 'function') {
+        return await window.firebaseBridge.saveQuestionToQuestionBank(question, {
+            className,
+            subjectName,
+            chapterName,
+            topicName,
+            ...context
+        });
+    }
+
+    const bridge = await ensureFirebaseBridge();
+    if (bridge && typeof bridge.saveQuestionToQuestionBank === 'function') {
+        return await bridge.saveQuestionToQuestionBank(question, {
+            className,
+            subjectName,
+            chapterName,
+            topicName,
+            ...context
+        });
+    }
+
+    const msg = 'Unable to save question to Question Bank: Firestore service is unavailable.';
+    toast(msg);
+    return { success: false, error: msg };
+}
+window.saveQuestionToQuestionBank = saveQuestionToQuestionBank;
+
+function validatePaperForQuestionBank(paper) {
+    const errors = [];
+    if (!paper) {
+        return { valid: false, errors: ['No active question paper to save.'], questions: [] };
+    }
+
+    const defaultClass = String(paper.meta?.className || '').trim();
+    const defaultSubject = String(paper.meta?.subject || '').trim();
+
+    const sections = Array.isArray(paper.sections) ? paper.sections : [];
+    if (!sections.length) {
+        return { valid: false, errors: ['Paper contains no sections.'], questions: [] };
+    }
+
+    const allQuestions = [];
+    let qGlobalIndex = 0;
+
+    for (let sIdx = 0; sIdx < sections.length; sIdx++) {
+        const section = sections[sIdx];
+        const sectionQuestions = Array.isArray(section.questions) ? section.questions : [];
+        const sectionSubject = String(section.name || defaultSubject).trim();
+
+        for (let qIdx = 0; qIdx < sectionQuestions.length; qIdx++) {
+            qGlobalIndex++;
+            const question = sectionQuestions[qIdx];
+            const qNum = qGlobalIndex;
+            const qPrefix = `Question ${qNum}`;
+
+            if (!question || typeof question !== 'object') {
+                errors.push(`${qPrefix} cannot be saved: question data is missing.`);
+                continue;
+            }
+
+            // Question prompt
+            const promptText = String(question.text || question.promptHtml || '').trim();
+            if (!promptText) {
+                errors.push(`${qPrefix} cannot be saved: question prompt is empty.`);
+            }
+
+            // MCQ type check
+            if (question.type && question.type !== 'mcq') {
+                errors.push(`${qPrefix} cannot be saved: question must be an MCQ.`);
+            }
+
+            // 4 options check
+            if (!Array.isArray(question.options) || question.options.length !== 4) {
+                errors.push(`${qPrefix} cannot be saved: question must have exactly four options.`);
+            }
+
+            // Correct answer check
+            const correctIndexes = Array.isArray(question.correctIndexes) && question.correctIndexes.length > 0
+                ? question.correctIndexes
+                : (Number.isInteger(question.correctIndex) && question.correctIndex >= 0 ? [question.correctIndex] : []);
+            const hasCorrect = correctIndexes.length > 0 || (Array.isArray(question.options) && question.options.some(opt => opt && opt.correct === true));
+            if (!hasCorrect) {
+                errors.push(`${qPrefix} cannot be saved: no correct answer selected.`);
+            }
+
+            // Class check
+            const className = String(question.className || defaultClass).trim();
+            if (!className) {
+                errors.push(`${qPrefix} cannot be saved: Class is required.`);
+            }
+
+            // Subject check
+            const subjectName = String(question.subject || question.subjectName || defaultSubject || section.subject || section.name || '').trim();
+            if (!subjectName) {
+                errors.push(`${qPrefix} cannot be saved: Subject is required.`);
+            }
+
+            // Chapter and Topic check
+            const chapterName = String(question.chapter || question.chapterName || '').trim();
+            const topicName = String(question.topic || question.topicName || '').trim();
+            if (!chapterName) {
+                errors.push(`${qPrefix} cannot be saved: Chapter is required.`);
+            }
+            if (!topicName) {
+                errors.push(`${qPrefix} cannot be saved: Topic is required.`);
+            }
+
+            allQuestions.push({
+                question,
+                section,
+                qNum,
+                context: {
+                    className,
+                    subjectName,
+                    chapterName,
+                    topicName
+                }
+            });
+        }
+    }
+
+    if (allQuestions.length === 0) {
+        return { valid: false, errors: ['Paper contains no questions to save.'], questions: [] };
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors,
+        questions: allQuestions
+    };
+}
+
+function highlightMissingTaxonomyFields(errors) {
+    if (typeof document === 'undefined') return;
+    const errorText = Array.isArray(errors) ? errors.join(' ') : String(errors || '');
+    let firstInvalidEl = null;
+
+    if (errorText.includes('Class is required')) {
+        const classInput = document.querySelector('input[data-meta="className"]');
+        if (classInput && !classInput.value.trim()) {
+            classInput.style.outline = '2px solid #ef4444';
+            classInput.addEventListener('input', () => { classInput.style.outline = ''; }, { once: true });
+            if (!firstInvalidEl) firstInvalidEl = classInput;
+        }
+    }
+
+    if (errorText.includes('Subject is required')) {
+        const subjectInput = document.querySelector('input[data-meta="subject"]');
+        if (subjectInput && !subjectInput.value.trim()) {
+            subjectInput.style.outline = '2px solid #ef4444';
+            subjectInput.addEventListener('input', () => { subjectInput.style.outline = ''; }, { once: true });
+            if (!firstInvalidEl) firstInvalidEl = subjectInput;
+        }
+    }
+
+    if (errorText.includes('Chapter is required')) {
+        document.querySelectorAll('.chapter-input').forEach(inp => {
+            if (!inp.value.trim()) {
+                inp.style.outline = '2px solid #ef4444';
+                inp.addEventListener('input', () => { inp.style.outline = ''; }, { once: true });
+                if (!firstInvalidEl) firstInvalidEl = inp;
+            }
+        });
+    }
+
+    if (errorText.includes('Topic is required')) {
+        document.querySelectorAll('.topic-input').forEach(inp => {
+            if (!inp.value.trim()) {
+                inp.style.outline = '2px solid #ef4444';
+                inp.addEventListener('input', () => { inp.style.outline = ''; }, { once: true });
+                if (!firstInvalidEl) firstInvalidEl = inp;
+            }
+        });
+    }
+
+    if (firstInvalidEl && typeof firstInvalidEl.scrollIntoView === 'function') {
+        firstInvalidEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstInvalidEl.focus();
+    }
+}
+
+let isSavingPaperToQuestionBank = false;
+
+async function savePaperToQuestionBank(paperToSave = null) {
+    if (isSavingPaperToQuestionBank) {
+        return { success: false, inProgress: true };
+    }
+
+    const saveBtn = document.getElementById('saveQbBtn');
+
+    const user = (window.firebaseBridge && typeof window.firebaseBridge.getCurrentUser === 'function')
+        ? window.firebaseBridge.getCurrentUser()
+        : (currentUser || (state && state.currentUser));
+
+    if (!user || !user.uid) {
+        const msg = 'Please sign in with Google before saving to the Question Bank.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    const paper = paperToSave || getActivePaper();
+    if (!paper) {
+        const msg = 'No active question paper to save.';
+        toast(msg);
+        return { success: false, error: msg };
+    }
+
+    const validation = validatePaperForQuestionBank(paper);
+    if (!validation.valid) {
+        const summary = validation.errors.slice(0, 3).join('\n') +
+            (validation.errors.length > 3 ? `\n...and ${validation.errors.length - 3} more issue(s).` : '');
+        toast(`Validation failed:\n${summary}`);
+        try { highlightMissingTaxonomyFields(validation.errors); } catch(e){}
+        return { success: false, validationErrors: validation.errors };
+    }
+
+    isSavingPaperToQuestionBank = true;
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.dataset.originalText = saveBtn.textContent;
+        saveBtn.textContent = 'Saving to Question Bank...';
+    }
+
+    const questionsToSave = validation.questions;
+    const totalCount = questionsToSave.length;
+    toast(`Saving ${totalCount} questions to Question Bank...`);
+
+    let savedCount = 0;
+    let updatedCount = 0;
+    const failedQuestions = [];
+
+    try {
+        for (let i = 0; i < totalCount; i++) {
+            const item = questionsToSave[i];
+            const q = item.question;
+            const ctx = { ...item.context, silent: true };
+
+            try {
+                const res = await saveQuestionToQuestionBank(q, ctx);
+                if (res && res.success) {
+                    if (res.isUpdate) {
+                        updatedCount++;
+                    } else {
+                        savedCount++;
+                    }
+                    if (res.id) {
+                        q.firestoreQuestionId = res.id;
+                    }
+                } else {
+                    failedQuestions.push({
+                        qNum: item.qNum,
+                        reason: res?.error || 'Unknown error'
+                    });
+                }
+            } catch (err) {
+                failedQuestions.push({
+                    qNum: item.qNum,
+                    reason: err.message || 'Error occurred'
+                });
+            }
+        }
+
+        // Persist updated question.firestoreQuestionId across all sections in localStorage
+        if (typeof save === 'function') {
+            save();
+        }
+
+        if (failedQuestions.length === 0) {
+            const msg = `${totalCount} questions saved to Question Bank.`;
+            toast(msg);
+            return {
+                success: true,
+                total: totalCount,
+                savedCount,
+                updatedCount,
+                failedCount: 0,
+                failedQuestions: []
+            };
+        } else {
+            const successCount = savedCount + updatedCount;
+            const failList = failedQuestions.map(f => `Question ${f.qNum}: ${f.reason}`).join('\n');
+            const msg = `${successCount} questions saved.\n${failedQuestions.length} questions failed:\n${failList}`;
+            toast(msg);
+            return {
+                success: false,
+                total: totalCount,
+                savedCount,
+                updatedCount,
+                failedCount: failedQuestions.length,
+                failedQuestions
+            };
+        }
+    } finally {
+        isSavingPaperToQuestionBank = false;
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = saveBtn.dataset.originalText || 'Save to Question Bank';
+        }
+    }
+}
+
+window.validatePaperForQuestionBank = validatePaperForQuestionBank;
+window.savePaperToQuestionBank = savePaperToQuestionBank;
 
 function load() {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -214,8 +1065,18 @@ function load() {
         try {
             state = JSON.parse(raw);
         } catch (err) {
-            state = { papers: [], activePaperId: null, activeSectionId: null };
+            state = { papers: [], activePaperId: null, activeSectionId: null, currentUser: null };
         }
+    }
+    if (state.currentUser && typeof state.currentUser === 'object') {
+        currentUser = {
+            uid: state.currentUser.uid || '',
+            displayName: state.currentUser.displayName || '',
+            email: state.currentUser.email || ''
+        };
+        state.currentUser = currentUser;
+    } else {
+        state.currentUser = null;
     }
     if (!state.papers.length) {
         const paper = samplePaper();
@@ -224,12 +1085,20 @@ function load() {
         state.activeSectionId = paper.sections[0].id;
     }
     normalize();
+    window.state = state;
 }
 
 function save() {
     normalize();
+    window.state = state;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
+window.render = render;
+window.save = save;
+window.getActivePaper = getActivePaper;
+window.addQuestion = addQuestion;
+window.deleteQuestion = deleteQuestion;
+window.addSection = addSection;
 
 function normalize() {
     state.papers.forEach(paper => {
